@@ -13,6 +13,15 @@ history between the charge and the dispute. That is the property a merchant
 actually needs, and it is honest about being no more than that.
 
 Storage is newline-delimited JSON so the file stays greppable and diffable.
+
+**Single-writer by design.** A decision is a read of the whole log followed by
+an append, and nothing serialises the two. Two concurrent authorisations
+against one mandate could therefore both pass a cumulative check that only one
+of them should. That is a real race and it is not fixed here: this build runs
+one process, and a lock that only works within a process would give false
+confidence. A production deployment needs the pair serialised per mandate --
+a row lock, a queue, or a compare-and-set on a monotonically increasing
+sequence.
 """
 
 from __future__ import annotations

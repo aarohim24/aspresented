@@ -102,6 +102,14 @@ The AP2 column is mapped against the published schemas, copies of which are in
   device-held key. This build signs intent records server-side, which proves
   the record was not altered afterwards — not that a specific human authored
   it.
+- **The gate is single-writer.** A decision reads the whole ledger and then
+  appends, and nothing serialises the pair, so two concurrent charges on one
+  mandate could both pass a cumulative check. Not fixed: this build is one
+  process, and an in-process lock would give false confidence. Production needs
+  the read and append serialised per mandate.
+- **Replay is O(n) per decision.** State is derived by reading the log, which
+  is correct but linear. The fix is a checkpoint derived from the chain and
+  re-verifiable against it, never a free-standing counter.
 - **No dispute rail accepts this evidence today.** NPCI's URCS has no field for
   a mandate scope. The evidence pack demonstrates what *should* exist; it does
   not integrate with a system that has nowhere to put it.
