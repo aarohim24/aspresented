@@ -210,6 +210,42 @@ the sweep would have stopped measuring anything.
 A clean sweep is not proof of correctness. It means one attacker, at five
 tempos, within one budget, found nothing.
 
+### A model attacker, on any endpoint
+
+```bash
+export GROQ_API_KEY=...            # free tier, no card
+python3 tools/run_attack.py --attacker model
+```
+
+The fuzzer is systematic but bounded by strategies its author imagined. A model
+given the mandate and a goal is not, which is the only way recall stops being a
+tautology.
+
+Provider-agnostic by construction: the request shape is OpenAI-compatible chat
+completions, so `--base-url` and `--model` point wherever you like. Written
+against raw HTTP rather than a vendor SDK, so the core package stays
+dependency-free -- a project whose thesis is that rails disagree should not
+hard-wire one vendor. Defaults target Groq's free tier and throttle to stay
+inside 30 requests/minute.
+
+**Model runs have no seed**, so an unrecorded finding exists only in someone's
+terminal. Every exchange is written to `evidence/` -- including the prompt,
+which is the evidence that the attacker was never shown the merchant's policy --
+and `--attacker replay` re-issues exactly those proposals with no credentials
+and no network. That is what makes a model result verifiable rather than
+asserted.
+
+Three rules the tool enforces on itself:
+
+- **A run with no attempts reports `INCONCLUSIVE`, not clean.** Found by
+  auditing: with a rejected key every call failed and the sweep still printed
+  "no invariant violations". Nothing was tested, so nothing was shown, and that
+  is the most misleading output this tool could produce. It now exits 2.
+- **Results from different attackers are never merged.** Author-written,
+  deterministic, and model-driven recall mean different things.
+- **Credentials are redacted before anything is written.** Error bodies echo the
+  key that failed, and transcripts get committed.
+
 ### Why the numbers are trustworthy
 
 The harness will not print a score until two controls pass:
@@ -361,6 +397,7 @@ mandate_gate/
   attack/
     base.py              what an attacker may see -- and may not
     fuzzer.py            deterministic, adaptive, no credentials
+    model.py             any OpenAI-compatible endpoint, plus replay
     invariants.py        the oracle: properties over the finished ledger
     session.py           run an attacker against a real gate
   harness/
@@ -374,7 +411,7 @@ evidence/                live API findings
   adjudicate.py          dispute-time verdicts, from the ledger alone
 tools/serve.py           local console (stdlib http.server)
   fixtures.py            canonical sample mandates, with provenance
-tests/                   135 tests, stdlib only
+tests/                   151 tests, stdlib only
 ```
 
 The ledger is a tamper-evident local log, not a blockchain, and claims nothing
@@ -388,7 +425,7 @@ No dependencies beyond the standard library. Python 3.9 or newer -- 3.9 is the
 floor because that is what a stock macOS toolchain ships.
 
 ```bash
-python3 -W error::ResourceWarning -m unittest discover -s tests -t .   # 135 tests
+python3 -W error::ResourceWarning -m unittest discover -s tests -t .   # 151 tests
 python3 tools/run_harness.py                                           # scores
 python3 tools/run_attack.py                                            # sweep
 python3 tools/gen_coverage.py                                          # the table
@@ -400,11 +437,8 @@ split is deterministic, so the figures above are what you will see.
 
 ## Still to come
 
-- **A model-driven attacker** behind the same `Attacker` protocol and the same
-  `Briefing`. The fuzzer is systematic but bounded by the strategies its author
-  imagined; a model given the mandate, the tool schema and a goal is not. The
-  core package stays dependency-free and transcripts get committed to
-  `evidence/`, so a finding survives without credentials.
+- **A live model run.** The attacker is built (`--attacker model`); what is
+  missing is a recorded run committed to `evidence/`.
 
 - **Evidence-pack export** in the format a dispute rail would want, once one
   exists that has anywhere to put it.

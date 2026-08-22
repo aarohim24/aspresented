@@ -81,12 +81,39 @@ spent 32 of 40 attempts that way. This is also the honest reading of
 `DUPLICATE_CHARGE`: it is hygiene against a client that lost its key, not a
 security control, and one paise defeats it.
 
-## A model-driven attacker
+## The model attacker
 
-Keep it behind the same `Attacker` protocol and the same `Briefing`. The core
-package stays dependency-free; the model client belongs in an optional extra.
+Same `Attacker` protocol, same `Briefing`, raw HTTP against an
+OpenAI-compatible endpoint so the core package keeps no dependencies. Point
+`base_url` and `model` at any provider; the defaults are Groq's free tier and
+throttle to stay inside 30 requests/minute.
 
-Record every transcript under `evidence/` and commit it, so a finding survives
-without credentials and CI can replay it. Report model attackers separately
-from the fuzzer -- never merge author-written, deterministic and model-driven
-results into one recall figure.
+Rules that are not negotiable, each of them learned the hard way:
+
+**A run with no attempts is INCONCLUSIVE, never clean.** With a rejected key
+every call failed and an earlier version of the tool printed "no invariant
+violations" -- nothing tested, reported as a pass. Check `total_attempts` before
+reporting anything and exit non-zero.
+
+**Record the prompt, not just the reply.** The prompt is the evidence that the
+attacker was not shown the policy. A reader should not have to trust the claim.
+
+**Redact before writing.** Error bodies echo the credential that failed and
+transcripts get committed. Be eager: a false positive costs readability, a
+false negative commits a key to a public repository.
+
+**Parse defensively.** Extraction must be string-aware -- a blind brace count
+returns None on `"rationale": "the } case"`, which ends the run silently and
+looks exactly like a model with nothing to propose.
+
+**Replay, because there is no seed.** A model finding that is not committed as a
+transcript is not reproducible and therefore is not a finding. `ReplayAttacker`
+re-issues recorded proposals with no credentials, which is how CI and a reader
+verify a result.
+
+**Never merge attacker results.** Author-written, deterministic and
+model-driven recall mean different things and go in different rows.
+
+**Budget visibly.** A model costs a call per attempt against a free tier of
+roughly a thousand a day. Model runs default to one tempo and print the
+projected call count; the fuzzer, being free, sweeps five.

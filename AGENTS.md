@@ -18,7 +18,7 @@ stays dependency-free.
 ## Quick Start
 
 ```bash
-python3 -W error::ResourceWarning -m unittest discover -s tests -t .  # 135 tests
+python3 -W error::ResourceWarning -m unittest discover -s tests -t .  # 151 tests
 python3 tools/run_harness.py        # integrity preflight, then held-out scores
 python3 tools/gen_coverage.py       # regenerate the README coverage table
 python3 tools/run_attack.py          # adversarial sweep + invariant oracle
