@@ -131,31 +131,3 @@ class Ledger:
             expected_prev = entry.digest()
             count += 1
         return count
-
-    # ------------------------------------------------------------- reading
-    def evidence_pack(self, mandate_id: str) -> dict:
-        """
-        Everything recorded about one mandate, plus a verification result.
-        This is what gets handed over when a charge is disputed: not a
-        narrative, but the decisions as they were written down at the time.
-        """
-        relevant = [
-            e for e in self.entries()
-            if e.payload.get("mandate_id") == mandate_id
-        ]
-        try:
-            verified = self.verify()
-            integrity = {"ok": True, "entries_verified": verified}
-        except BrokenChain as exc:
-            integrity = {"ok": False, "error": str(exc)}
-
-        return {
-            "mandate_id": mandate_id,
-            "integrity": integrity,
-            "entry_count": len(relevant),
-            "entries": [
-                {"seq": e.seq, "recorded_at": e.recorded_at,
-                 "kind": e.kind, "hash": e.digest(), "payload": e.payload}
-                for e in relevant
-            ],
-        }

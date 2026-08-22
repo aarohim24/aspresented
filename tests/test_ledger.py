@@ -66,33 +66,5 @@ class TestVerify(LedgerTestCase):
             self.ledger.verify()
 
 
-class TestEvidencePack(LedgerTestCase):
-    def test_collects_only_the_named_mandate(self):
-        self.ledger.append("decision", {"mandate_id": "m1", "verdict": "allow"})
-        self.ledger.append("decision", {"mandate_id": "m2", "verdict": "allow"})
-        self.ledger.append("decision", {"mandate_id": "m1", "verdict": "refuse"})
-
-        pack = self.ledger.evidence_pack("m1")
-        self.assertEqual(pack["entry_count"], 2)
-        self.assertTrue(pack["integrity"]["ok"])
-        self.assertEqual([e["payload"]["verdict"] for e in pack["entries"]],
-                         ["allow", "refuse"])
-
-    def test_reports_tampering_rather_than_hiding_it(self):
-        self.ledger.append("decision", {"mandate_id": "m1"})
-        self.ledger.append("decision", {"mandate_id": "m1"})
-        with open(self.path) as fh:
-            rows = [json.loads(line) for line in fh]
-        rows[0]["payload"]["mandate_id"] = "m1"
-        rows[0]["kind"] = "note"                     # tamper
-        with open(self.path, "w") as fh:
-            for row in rows:
-                fh.write(json.dumps(row, sort_keys=True,
-                                    separators=(",", ":")) + "\n")
-
-        pack = self.ledger.evidence_pack("m1")
-        self.assertFalse(pack["integrity"]["ok"])
-
-
 if __name__ == "__main__":
     unittest.main()
