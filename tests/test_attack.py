@@ -236,3 +236,206 @@ class TestSessionHygiene(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestModelAttacker(unittest.TestCase):
+    """
+    The model attacker is exercised without a network. What matters here is
+    that it degrades safely and parses whatever a model actually returns --
+    the request shape itself is verified by a live run, recorded, and replayed.
+    """
+
+    def make(self, **kw):
+        from mandate_gate.attack.model import ModelAttacker
+        kw.setdefault("api_key", None)
+        return ModelAttacker(mandate_id="m", throttle=0, **kw)
+
+    def test_no_key_ends_the_run_rather_than_raising(self):
+        """A dead attacker must stop cleanly, mid-sweep, without a traceback."""
+        attacker = self.make()
+        attacker.api_key = None
+        self.assertIsNone(attacker.propose(Briefing(mandate={})))
+
+    def test_names_itself_by_model_so_results_are_never_merged(self):
+        default = self.make()
+        other = self.make(model="some/other-model")
+        self.assertIn("gpt-oss-120b", default.NAME)
+        self.assertIn("some/other-model", other.NAME)
+        self.assertNotEqual(default.NAME, other.NAME)
+
+    def test_extracts_json_from_prose_and_fences(self):
+        from mandate_gate.attack.model import ModelAttacker as MA
+        for text in ('{"amount": 42}',
+                     'Sure!\n```json\n{"amount": 42}\n```\n',
+                     'I will try {"amount": 42} because boundaries.',
+                     'notes {"bad": } then {"amount": 42}'):
+            self.assertEqual(MA._extract_json(text), {"amount": 42}, text)
+
+    def test_returns_none_on_unusable_output(self):
+        from mandate_gate.attack.model import ModelAttacker as MA
+        for text in ("", "no json here", "{}", '{"amount": "lots"}',
+                     '{"amount": 0}', '{"amount": -5}'):
+            parsed = MA._extract_json(text)
+            if parsed is None:
+                continue
+            try:
+                usable = int(parsed.get("amount")) > 0
+            except (TypeError, ValueError):
+                usable = False
+            self.assertFalse(usable, text)
+
+    def test_briefing_render_never_leaks_the_policy(self):
+        """The prompt is the attacker's whole view. It must not carry policy."""
+        from mandate_gate.attack.model import ModelAttacker as MA
+        from mandate_gate.attack.session import _mandate_view
+        rendered = MA._render(Briefing(
+            mandate=_mandate_view(envelope()),
+            intents=("int_1",), seen_merchants=("shop-a",)))
+
+        # Field names, not values: a bare number like "2000" is a substring of
+        # the expiry timestamp, so matching on it tests nothing.
+        for leak in ("cumulative_max", "max_charges", "rate_limit",
+                     "requires_intent_binding", "scope"):
+            self.assertNotIn(leak, rendered, f"policy leaked: {leak}")
+
+        # And no merchant the attacker was never shown.
+        self.assertNotIn("shop-b", rendered)
+
+    def test_the_mandate_view_is_the_only_source_for_the_prompt(self):
+        """
+        Belt and braces on the asymmetry: whatever _render puts in the prompt
+        can only come from a dict that has no policy keys in it at all.
+        """
+        from mandate_gate.attack.session import _mandate_view
+        view = _mandate_view(envelope())
+        policy_keys = {"cumulative_max", "max_charges", "rate_limit", "scope",
+                       "requires_intent_binding"}
+        self.assertEqual(set(view) & policy_keys, set())
+
+    def test_render_bounds_the_prompt(self):
+        """History is truncated, or a long run grows the prompt without limit."""
+        from mandate_gate.attack.model import ModelAttacker as MA
+        b = Briefing(mandate={"per_charge_max": CEILING})
+        for i in range(50):
+            b.history.append(Attempt(
+                request=ChargeRequest(mandate_id="m", amount=1,
+                                      idempotency_key=f"k{i}"),
+                allowed=False, codes=("X",), remediations=()))
+        rendered = MA._render(b)
+        self.assertLess(rendered.count("amount=1 "), 20)
+
+
+class TestReplayAttacker(unittest.TestCase):
+    """
+    Replay is what makes a model finding verifiable. A model run has no seed,
+    so an unrecorded result exists only in someone's terminal.
+    """
+
+    def transcript(self):
+        return [
+            {"parsed": {"amount": 500, "merchant": "shop-a",
+                        "intent_id": "int_1"}},
+            {"parsed": None, "error": "HTTP 429: rate limited"},
+            {"parsed": {"amount": 501, "merchant": "shop-rogue"}},
+            {"parsed": {"amount": 0}},
+            {"parsed": {"amount": 250, "merchant": "shop-a",
+                        "claimed_at": 999}},
+        ]
+
+    def replayer(self):
+        from mandate_gate.attack.model import ReplayAttacker
+        return ReplayAttacker(mandate_id="m", transcript=self.transcript())
+
+    def test_reissues_usable_proposals_and_skips_the_rest(self):
+        r = self.replayer()
+        b = Briefing(mandate={})
+        amounts = []
+        while True:
+            req = r.propose(b)
+            if req is None:
+                break
+            amounts.append(req.amount)
+        self.assertEqual(amounts, [500, 501, 250])
+
+    def test_carries_the_recorded_fields_through(self):
+        req = self.replayer().propose(Briefing(mandate={}))
+        self.assertEqual(req.merchant, "shop-a")
+        self.assertEqual(req.intent_id, "int_1")
+
+    def test_replay_is_deterministic(self):
+        def run_once():
+            r, b, out = self.replayer(), Briefing(mandate={}), []
+            while (req := r.propose(b)) is not None:
+                out.append((req.amount, req.merchant, req.claimed_at))
+            return out
+        self.assertEqual(run_once(), run_once())
+
+    def test_a_replayed_run_is_judged_by_the_same_oracle(self):
+        from mandate_gate.attack.model import ReplayAttacker
+        result = run(envelope(),
+                     ReplayAttacker(mandate_id="m",
+                                    transcript=self.transcript()),
+                     secret=SECRET, intents=INTENTS, budget=10,
+                     start_time=T0, seconds_per_attempt=1200)
+        self.assertEqual(result.attacker, "replay")
+        self.assertTrue(result.clean, [v.detail for v in result.violations])
+        self.assertGreater(result.attempts, 0)
+
+
+class TestModelAuditFixes(unittest.TestCase):
+    """
+    Regressions for defects found auditing the model attacker after writing it.
+    """
+
+    def test_unbalanced_braces_inside_a_string_still_parse(self):
+        """
+        A blind brace count returned None here, which ends an attack run
+        silently -- indistinguishable from a model with nothing to propose. A
+        red-teaming model writes about braces and quotes constantly.
+        """
+        from mandate_gate.attack.model import ModelAttacker as MA
+        for text in ('{"amount": 42, "rationale": "the } case"}',
+                     '{"amount": 42, "rationale": "the { case"}',
+                     '{"amount": 42, "rationale": "a \\" } b"}',
+                     '```json\n{"amount": 42, "rationale": "{x} and } odd"}\n```'):
+            parsed = MA._extract_json(text)
+            self.assertIsNotNone(parsed, text)
+            self.assertEqual(parsed["amount"], 42, text)
+
+    def test_key_shaped_strings_are_redacted(self):
+        """Error bodies can echo the credential, and transcripts get committed."""
+        from mandate_gate.attack.model import _redact
+        for secret in ("gsk_abc123XYZdef456", "sk-proj-abcdef123456",
+                       "Bearer abcdef123456789"):
+            self.assertNotIn(secret, _redact(f"rejected: {secret} is invalid"))
+        self.assertIn("<redacted>", _redact("bad key gsk_abcdefgh12345"))
+
+    def test_a_transcript_records_the_prompt_it_was_given(self):
+        """
+        The prompt is the evidence that the attacker was not fed the policy. A
+        reader should not have to take that on trust.
+        """
+        from mandate_gate.attack.model import Call, ModelAttacker
+        attacker = ModelAttacker(mandate_id="m", api_key="x", throttle=0)
+        attacker.calls.append(Call(
+            prompt={"role": "user", "content": "MANDATE {...}"},
+            raw='{"amount": 1}', parsed={"amount": 1}))
+        entry = attacker.transcript()[0]
+        self.assertEqual(entry["prompt"], "MANDATE {...}")
+
+    def test_transcript_redacts_the_raw_response_too(self):
+        from mandate_gate.attack.model import Call, ModelAttacker
+        attacker = ModelAttacker(mandate_id="m", api_key="x", throttle=0)
+        attacker.calls.append(Call(prompt={"content": "p"},
+                                   raw="leaked gsk_abcdefgh12345 oops",
+                                   parsed=None))
+        self.assertNotIn("gsk_abcdefgh12345",
+                         attacker.transcript()[0]["raw"])
+
+    def test_every_attacker_names_itself_the_same_way(self):
+        """NAME is a class attribute on all three, not a dataclass field."""
+        from mandate_gate.attack.model import ModelAttacker, ReplayAttacker
+        for cls in (Fuzzer, ModelAttacker, ReplayAttacker):
+            self.assertIsInstance(getattr(cls, "NAME"), str, cls.__name__)
+            self.assertNotIn("NAME", getattr(cls, "__dataclass_fields__", {}),
+                             f"{cls.__name__}.NAME should not be a field")
