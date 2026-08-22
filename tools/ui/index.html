@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mandate Gate</title>
+<style>
+:root{
+  --bg:#f4f6f9; --panel:#fff; --ink:#0d141d; --dim:#5a6675; --faint:#8b96a5;
+  --line:#d5dce5; --accent:#1b3fd0; --accent-bg:#e6ebfb;
+  --ok:#0c6a55; --ok-bg:#dceee9; --bad:#a3282f; --bad-bg:#f7e2e3;
+  --warn:#8f5400; --warn-bg:#f8ebd6;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0a1017; --panel:#111a24; --ink:#e4e9f0; --dim:#a1adbd; --faint:#717d8b;
+  --line:#222e3d; --accent:#84a2ff; --accent-bg:#18223c;
+  --ok:#4ec7a5; --ok-bg:#0f3129; --bad:#ee7b81; --bad-bg:#33191b;
+  --warn:#e5a94d; --warn-bg:#32250e;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 var(--sans)}
+.wrap{max-width:1080px;margin:0 auto;padding:44px 24px 100px;display:flex;flex-direction:column;gap:40px}
+h1{font-size:1.7rem;margin:0;letter-spacing:-.02em}
+h2{font-size:1.05rem;margin:0;letter-spacing:-.01em}
+p{margin:0;color:var(--dim);max-width:70ch}
+.lede{font-size:1.02rem}
+.eyebrow{font-size:.68rem;text-transform:uppercase;letter-spacing:.14em;color:var(--faint);font-weight:650}
+header{border-bottom:2px solid var(--ink);padding-bottom:22px;display:flex;flex-direction:column;gap:12px}
+section{display:flex;flex-direction:column;gap:16px}
+.head{display:flex;flex-direction:column;gap:5px;border-top:1px solid var(--line);padding-top:14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:20px 22px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.88rem;min-width:520px}
+th{text-align:left;font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);
+   padding:9px 12px;border-bottom:1px solid var(--ink);white-space:nowrap;font-weight:650}
+td{padding:9px 12px;border-bottom:1px solid var(--line);color:var(--dim);vertical-align:top}
+tr:last-child td{border-bottom:0}
+.yes{color:var(--ok);font-weight:600}
+.no{color:var(--bad);font-weight:700}
+.gapRow td{background:var(--bad-bg)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1px;background:var(--line);
+         border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.metric{background:var(--panel);padding:16px 18px;display:flex;flex-direction:column;gap:3px}
+.metric .v{font-family:var(--mono);font-size:1.5rem;font-weight:600;letter-spacing:-.02em}
+.metric .k{font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);font-weight:650}
+.metric .n{font-size:.78rem;color:var(--faint)}
+.metric.lead .v{color:var(--ok)}
+.note{font-size:.86rem;color:var(--dim);border-left:2px solid var(--line);padding-left:14px;max-width:70ch}
+.pill{display:inline-block;font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;
+      padding:3px 8px;border-radius:2px}
+.p-ok{background:var(--ok-bg);color:var(--ok)}
+.p-bad{background:var(--bad-bg);color:var(--bad)}
+.p-warn{background:var(--warn-bg);color:var(--warn)}
+.p-acc{background:var(--accent-bg);color:var(--accent)}
+.cols{display:grid;grid-template-columns:minmax(280px,1fr) minmax(320px,1.25fr);gap:20px}
+@media (max-width:840px){.cols{grid-template-columns:1fr}}
+.chargeList{display:flex;flex-direction:column;gap:8px}
+button.charge{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:5px;padding:13px 15px;
+  border:1px solid var(--line);border-radius:3px;background:var(--panel);transition:border-color .12s}
+button.charge:hover,button.charge:focus-visible{border-color:var(--accent)}
+button.charge[aria-selected=true]{border-color:var(--accent);background:var(--accent-bg)}
+button.charge .top{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+button.charge .ref{font-family:var(--mono);font-size:.84rem;color:var(--ink);font-weight:600}
+button.charge .meta{font-size:.76rem;color:var(--faint)}
+.verdict{display:flex;flex-direction:column;gap:14px}
+.verdict .big{font-family:var(--mono);font-size:1.35rem;font-weight:700;letter-spacing:-.01em}
+.v-AUTHORISED{color:var(--ok)}
+.v-UNAUTHORISED{color:var(--bad)}
+.v-UNPROVABLE{color:var(--warn)}
+.reasons{display:flex;flex-direction:column;gap:9px;margin:0;padding:0;list-style:none}
+.reasons li{font-size:.9rem;color:var(--dim);padding-left:15px;position:relative}
+.reasons li::before{content:"";position:absolute;left:0;top:.62em;width:6px;height:1px;background:var(--faint)}
+dl{display:grid;grid-template-columns:auto 1fr;gap:5px 16px;margin:0;font-size:.85rem}
+dt{color:var(--faint);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;font-weight:650;padding-top:2px}
+dd{margin:0;font-family:var(--mono);color:var(--ink)}
+.empty{color:var(--faint);font-size:.9rem;font-style:italic}
+code{font-family:var(--mono);font-size:.86em;background:var(--accent-bg);color:var(--accent);padding:1px 5px;border-radius:2px}
+footer{border-top:1px solid var(--line);padding-top:18px;font-size:.8rem;color:var(--faint)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">Mandate Gate &middot; local console</span>
+  <h1>A mandate says how much. It never says how many times.</h1>
+  <p class="lede">Everything below is computed at load from the real code &mdash; the table from the adapters, the scores from the harness, the verdicts from a hash-chained ledger built by running charges through the gate.</p>
+</header>
+
+<section>
+  <div class="head"><span class="eyebrow">The finding</span><h2>What each rail can actually express</h2></div>
+  <p>Verified against the live Razorpay test-mode API: the mandate token is a strict allowlist of four fields, and seven attempts to express anything else were rejected by name.</p>
+  <div class="panel scroll"><table id="coverage"></table></div>
+  <p class="note" id="coverageNote"></p>
+</section>
+
+<section>
+  <div class="head"><span class="eyebrow">Measured</span><h2>Adversarial harness, held-out split</h2></div>
+  <div class="metrics" id="metrics"></div>
+  <p class="note" id="harnessNote"></p>
+  <div class="panel scroll"><table id="classes"></table></div>
+</section>
+
+<section>
+  <div class="head"><span class="eyebrow">Dispute console</span><h2>Was this charge authorised?</h2></div>
+  <p>Two mandates, identical but for one line of policy: one requires intent binding, the other does not. Adjudicate a charge from each.</p>
+  <div class="cols">
+    <div>
+      <span class="eyebrow">Settled charges</span>
+      <div class="chargeList" id="settled" style="margin-top:10px"></div>
+      <div style="margin-top:22px">
+        <span class="eyebrow">Refused by the gate</span>
+        <div class="chargeList" id="refused" style="margin-top:10px"></div>
+      </div>
+    </div>
+    <div class="panel" id="verdict">
+      <p class="empty">Pick a charge to adjudicate it.</p>
+    </div>
+  </div>
+</section>
+
+<footer id="footer"></footer>
+</div>
+
+<script>
+const pct = n => (n * 100).toFixed(n === 0 || n === 1 ? 0 : 1) + "%";
+const rs  = p => "₹" + (p / 100).toFixed(2);
+const el  = (t, c, txt) => { const n = document.createElement(t);
+  if (c) n.className = c; if (txt !== undefined) n.textContent = txt; return n; };
+
+let state = null;
+
+function renderCoverage(cov) {
+  const t = document.getElementById("coverage");
+  const head = t.createTHead().insertRow();
+  head.appendChild(el("th", null, "Constraint"));
+  cov.rails.forEach(r => {
+    const th = el("th");
+    th.appendChild(el("span", null, r));
+    th.appendChild(document.createTextNode(" "));
+    th.appendChild(el("span", "pill " + (cov.wired[r] ? "p-acc" : "p-warn"),
+                      cov.wired[r] ? "wired" : "mapper"));
+    head.appendChild(th);
+  });
+  const body = t.createTBody();
+  cov.rows.forEach(row => {
+    const tr = body.insertRow();
+    if (row.absent_everywhere) tr.className = "gapRow";
+    tr.insertCell().textContent = row.label;
+    row.cells.forEach(v => {
+      const td = tr.insertCell();
+      td.className = v ? "yes" : "no";
+      td.textContent = v ? "yes" : "no";
+    });
+  });
+  const gaps = cov.rows.filter(r => r.absent_everywhere).map(r => r.label);
+  document.getElementById("coverageNote").innerHTML =
+    "Highlighted rows are expressed by <strong>no rail at all</strong>: " +
+    gaps.join(", ") + ". Note also that each rail lacks something another has " +
+    "— Razorpay gives a ceiling but no intent binding, AP2 binds intent but " +
+    "sets no ceiling. A merchant taking agent traffic from more than one source " +
+    "cannot rely on any of them.";
+}
+
+function renderHarness(h) {
+  const m = document.getElementById("metrics");
+  const add = (k, v, n, lead) => {
+    const d = el("div", "metric" + (lead ? " lead" : ""));
+    d.appendChild(el("span", "k", k));
+    d.appendChild(el("span", "v", v));
+    d.appendChild(el("span", "n", n));
+    m.appendChild(d);
+  };
+  add("False-decline rate", pct(h.false_decline_rate),
+      h.honest_refused + "/" + h.honest_total + " honest charges refused", true);
+  add("Abuse recall", pct(h.recall),
+      h.abusive_caught + "/" + h.abusive_total + " refused");
+  add("Caught by policy / rail", h.policy_catches + " / " + h.rail_catches,
+      h.abuse_classes + " abuse classes");
+  add("Value blocked", rs(h.amount_blocked), "held-out split, seed " + h.seed);
+
+  document.getElementById("harnessNote").innerHTML =
+    "<strong>Read the recall with suspicion.</strong> The same author wrote the " +
+    "abuse generator and the checks, so every class trips the check built for it — " +
+    "that number shows the wiring works, not that detection is hard. " +
+    "<strong>The false-decline rate is the number that means something:</strong> " +
+    h.boundary_families + " of the honest scenario families sit <em>exactly</em> on a " +
+    "limit, where an off-by-one becomes a refused customer. " +
+    "Stripping the policy layer collapses recall from " + pct(h.recall) + " to " +
+    pct(h.control_bare.recall) + " (the remainder is the rail catching its own " +
+    "ceiling), which is how we know the labels are not leaking.";
+
+  const t = document.getElementById("classes");
+  const head = t.createTHead().insertRow();
+  ["Abuse class", "n", "Recall", "Caught for the expected reason"]
+    .forEach(x => head.appendChild(el("th", null, x)));
+  const body = t.createTBody();
+  h.classes.forEach(c => {
+    const tr = body.insertRow();
+    tr.insertCell().textContent = c.label;
+    tr.insertCell().outerHTML = '<td class="num">' + c.total + "</td>";
+    tr.insertCell().outerHTML = '<td class="num">' + pct(c.recall) + "</td>";
+    tr.insertCell().outerHTML = '<td class="num">' + pct(c.attribution) + "</td>";
+  });
+}
+
+function chargeButton(c, refused) {
+  const b = el("button", "charge");
+  b.type = "button";
+  b.setAttribute("aria-selected", "false");
+  b.dataset.ref = c.charge_ref;
+  const top = el("div", "top");
+  top.appendChild(el("span", "ref", c.charge_ref));
+  top.appendChild(el("span", "num", rs(c.amount)));
+  b.appendChild(top);
+  const bits = [c.mandate_id, c.merchant];
+  if (refused) bits.push((c.codes || []).join(", ") || c.refused_by);
+  else bits.push(c.intent_id ? "intent " + c.intent_id : "no intent on record");
+  b.appendChild(el("span", "meta", bits.join("  ·  ")));
+  b.addEventListener("click", () => select(c.charge_ref));
+  return b;
+}
+
+async function select(ref) {
+  document.querySelectorAll("button.charge").forEach(b =>
+    b.setAttribute("aria-selected", String(b.dataset.ref === ref)));
+  const panel = document.getElementById("verdict");
+  panel.innerHTML = '<p class="empty">Adjudicating…</p>';
+  const r = await fetch("/api/adjudicate?ref=" + encodeURIComponent(ref));
+  renderVerdict(await r.json());
+}
+
+function renderVerdict(a) {
+  const panel = document.getElementById("verdict");
+  panel.innerHTML = "";
+  const box = el("div", "verdict");
+
+  box.appendChild(el("span", "eyebrow", "Verdict · " + a.charge_ref));
+  box.appendChild(el("div", "big v-" + a.verdict, a.verdict));
+
+  const chain = el("div");
+  chain.appendChild(el("span", "pill " + (a.chain_ok ? "p-ok" : "p-bad"),
+    a.chain_ok ? "decision log verifies" : "decision log altered"));
+  box.appendChild(chain);
+
+  const ul = el("ul", "reasons");
+  a.reasons.forEach(r => ul.appendChild(el("li", null, r)));
+  box.appendChild(ul);
+
+  if (a.intent && a.intent.intent_id) {
+    box.appendChild(el("span", "eyebrow", "Signed intent, re-verified from the ledger"));
+    const dl = el("dl");
+    const add = (k, v) => { dl.appendChild(el("dt", null, k));
+                            dl.appendChild(el("dd", null, v)); };
+    add("intent", a.intent.intent_id);
+    add("approved up to", rs(a.intent.max_amount));
+    if (a.intent.merchant) add("merchant", a.intent.merchant);
+    box.appendChild(dl);
+  }
+
+  const p = a.position_at_charge;
+  if (p && p.this_charge !== undefined) {
+    box.appendChild(el("span", "eyebrow", "Position at the time, recomputed"));
+    const dl = el("dl");
+    const add = (k, v) => { dl.appendChild(el("dt", null, k));
+                            dl.appendChild(el("dd", null, v)); };
+    add("charged before", rs(p.charged_before) + "  (" + p.charges_before + " charges)");
+    add("this charge", rs(p.this_charge));
+    add("total after", rs(p.total_after));
+    box.appendChild(dl);
+  }
+
+  panel.appendChild(box);
+}
+
+(async function init() {
+  state = await (await fetch("/api/state")).json();
+  renderCoverage(state.coverage);
+  renderHarness(state.harness);
+
+  const s = document.getElementById("settled");
+  const f = document.getElementById("refused");
+  if (!state.settled.length) s.appendChild(el("p", "empty", "none"));
+  state.settled.forEach(c => s.appendChild(chargeButton(c, false)));
+  if (!state.refused.length) f.appendChild(el("p", "empty", "none"));
+  state.refused.forEach(c => f.appendChild(chargeButton(c, true)));
+
+  document.getElementById("footer").innerHTML =
+    "Ledger: <code>" + state.ledger_path + "</code> · " +
+    "charges execute against a rail simulator enforcing exactly what Razorpay " +
+    "documents, because the recurring debit endpoint needs account activation " +
+    "this build does not have.";
+
+  if (state.settled.length) select(state.settled[0].charge_ref);
+})();
+</script>
+</body>
+</html>
