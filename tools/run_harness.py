@@ -5,8 +5,10 @@ Run the adversarial harness and print the report.
 Order matters. The integrity preflight runs first, because a score from an
 evaluator nobody has stress-tested is decoration. Two controls:
 
-  Control A -- policy stripped. The rail alone should let nearly everything
-    through. If abuse recall is already high here, the labelled "abuse" was
+  Control A -- policy limits stripped. What remains is the rail plus the gate's
+    structural input validation (clock-skew detection is not a merchant policy
+    choice, so it still fires). Nearly everything honest should pass and recall
+    should collapse. If recall is already high here, the labelled "abuse" was
     not abusive and the headline recall is measuring nothing.
 
   Control B -- a gate that refuses everything. Recall must hit 100% and the
@@ -38,7 +40,7 @@ from mandate_gate.harness.scenarios import (ABUSE_CLASSES, POLICY,  # noqa: E402
 class _RefuseEverything(Gate):
     """Control B. Deliberately useless, to prove the metrics are wired."""
 
-    def _check(self, req, st):
+    def _check(self, req, st, now):
         from mandate_gate.charge import Refusal
         return [Refusal("CONTROL_REFUSE_ALL", "amount",
                         "control: refuses unconditionally",
@@ -91,12 +93,14 @@ def main() -> int:
     print("  " + "-" * 66 + "\n")
 
     bare = score(runner.run(holdout, policy=Limits(), duplicate_window=-1))
-    print(f"  A. policy stripped     "
+    print(f"  A. policy limits off   "
           f"false-decline {bare.false_decline_rate:6.2%}   "
           f"recall {bare.recall:6.2%}")
-    a_ok = bare.false_decline_rate < 0.02 and bare.recall < 0.25
+    a_ok = bare.false_decline_rate < 0.02 and bare.recall < 0.35
     print(f"     {'PASS' if a_ok else 'FAIL'} -- expect near-zero declines and "
-          f"low recall (only the rail's own ceiling)")
+          f"collapsed recall\n"
+          f"          (what survives: the rail's own ceiling, plus clock-skew "
+          f"validation)")
 
     original_check = Gate._check
     try:

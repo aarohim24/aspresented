@@ -62,15 +62,24 @@ class Intent:
 
 @dataclass(frozen=True)
 class ChargeRequest:
-    """An agent asking to move money against a mandate."""
+    """
+    An agent asking to move money against a mandate.
+
+    Note what is absent: a timestamp the gate will act on. `claimed_at` is
+    whatever the caller says the time is, and it is untrusted -- recorded as a
+    claim, compared against the server clock for skew, and never used to decide
+    anything. An earlier version of this class carried an authoritative `at`,
+    and an agent that simply advanced it walked straight through the rate limit.
+    """
 
     mandate_id: str
     amount: int                      # paise
-    at: int                          # unix seconds
     idempotency_key: str
     intent_id: str | None = None
     merchant: str | None = None
     category: str | None = None
+    #: Caller-asserted time. Untrusted input. Optional -- most clients send none.
+    claimed_at: int | None = None
 
     def __post_init__(self) -> None:
         if self.amount <= 0:

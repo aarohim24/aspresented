@@ -30,18 +30,19 @@ class RailSimulator:
     """
 
     limits: Limits
-    cancelled: bool = False
     #: Cumulative total, mirroring the token's observable `amount_debited`.
     #: Observable, and -- this is the whole point -- not enforced against.
     amount_debited: int = 0
     charges: list = field(default_factory=list)
 
-    def charge(self, amount: int, at: int) -> tuple:
-        """Returns (ok, charge_id_or_error_code)."""
-        if self.cancelled:
-            return False, "invalid_request"          # token cancelled
+    def charge(self, amount: int, now: int) -> tuple:
+        """
+        Returns (ok, charge_id_or_error_code).
 
-        if self.limits.expires_at is not None and at > self.limits.expires_at:
+        `now` is server time, passed down from the gate. A real rail reads its
+        own clock; nothing here may be driven by a caller-asserted timestamp.
+        """
+        if self.limits.expires_at is not None and now > self.limits.expires_at:
             return False, "invalid_request"          # token expired
 
         if (self.limits.per_charge_max is not None
@@ -53,5 +54,5 @@ class RailSimulator:
         # against -- which is precisely the finding this project rests on.
         self.amount_debited += amount
         charge_id = f"pay_sim_{len(self.charges):04d}"
-        self.charges.append({"id": charge_id, "amount": amount, "at": at})
+        self.charges.append({"id": charge_id, "amount": amount, "at": now})
         return True, charge_id

@@ -7,6 +7,10 @@ of any single charge. Sessions are independent, so nothing leaks between them.
 
 Ledger integrity is verified after every session. A harness that produced
 numbers from a log that no longer verifies would be reporting fiction.
+
+Time is driven by advancing an injected server clock per attempt, never by a
+field on the request. That is deliberate: if the harness could set the time the
+gate evaluates against, it would be reproducing the bug it exists to catch.
 """
 
 from __future__ import annotations
@@ -65,15 +69,18 @@ def run(sessions, policy: Limits = POLICY, rail_limits: Limits = RAIL,
             subject=f"cust-{session.session_id}",
             rail=rail_limits, policy=effective_policy,
         )
+        server_time = {"now": 0}
         ledger = Ledger(os.path.join(workdir, f"{session.session_id}.jsonl"),
-                        clock=lambda: 0)
+                        clock=lambda: server_time["now"])
         rail = RailSimulator(limits=rail_limits)
         gate = Gate(envelope, ledger, rail, SECRET,
-                    duplicate_window=duplicate_window)
+                    duplicate_window=duplicate_window,
+                    clock=lambda: server_time["now"])
 
         _install_intents(gate, session)
 
         for attempt in session.attempts:
+            server_time["now"] = attempt.at        # the clock moves, not the request
             decision = gate.authorize(attempt.request)
             outcomes.append(Outcome(
                 label=attempt.label,

@@ -23,22 +23,28 @@ class GateTestCase(unittest.TestCase):
             subject="cust_test", rail=rail_limits, policy=Limits(**policy),
         )
         path = os.path.join(tempfile.mkdtemp(), "ledger.jsonl")
-        self.ledger = Ledger(path, clock=lambda: T0)
+        self.clock = {"now": T0}
+        self.ledger = Ledger(path, clock=lambda: self.clock["now"])
         self.rail = RailSimulator(limits=rail_limits)
         self.rail_limits = rail_limits
         self.n = 0
-        return Gate(env, self.ledger, self.rail, SECRET)
+        return Gate(env, self.ledger, self.rail, SECRET,
+                    clock=lambda: self.clock["now"])
 
     def charge(self, gate, amount=CEILING, at=T0, key=None, **kw):
         """
         Distinct purchases by default: each call gets its own merchant unless
         the test names one. Tests that mean to probe duplicate detection pass
         the same merchant deliberately.
+
+        `at` advances the *server* clock. It is not a field on the request --
+        the request has no authoritative timestamp, by design.
         """
         self.n += 1
+        self.clock["now"] = at
         kw.setdefault("merchant", f"shop-{self.n}")
         return gate.authorize(ChargeRequest(
-            mandate_id="token_test", amount=amount, at=at,
+            mandate_id="token_test", amount=amount,
             idempotency_key=key or f"k-{self.n}", **kw))
 
 
@@ -65,6 +71,80 @@ class TestTheGapItself(GateTestCase):
         outcomes = [self.charge(gate, at=T0 + i * 60).allowed for i in range(6)]
         self.assertEqual(outcomes, [True, True, False, False, False, False])
         self.assertEqual(self.rail.amount_debited, CEILING * 2)
+
+
+class TestClockIsNotCallerControlled(GateTestCase):
+    """
+    Regression tests for a real hole found by auditing this code.
+
+    A previous version read the timestamp off the request and used it for rate
+    limiting, expiry and duplicate detection. An agent that simply advanced the
+    value it reported walked through a 2-per-hour limit eight times.
+    """
+
+    def test_advancing_the_claimed_clock_does_not_clear_the_rate_window(self):
+        """
+        Under the vulnerable version this loop extracted 6 x the ceiling
+        against a 2-per-hour limit. Now the first skewed claim is refused
+        outright, so the run cannot even reach the rate limit.
+        """
+        gate = self.build(rate_limit=Window(seconds=3600, max_charges=2))
+        decisions = []
+        for i in range(6):
+            self.n += 1
+            decisions.append(gate.authorize(ChargeRequest(
+                mandate_id="token_test", amount=CEILING,
+                idempotency_key=f"lie-{i}", merchant=f"shop-{self.n}",
+                claimed_at=T0 + i * 4000,      # "each of these is hours apart"
+            )))
+
+        allowed = [d.allowed for d in decisions]
+        self.assertEqual(allowed.count(True), 1, allowed)
+        # every refusal is either the lie or the limit -- never silence
+        for d in decisions[1:]:
+            self.assertTrue({"CLOCK_SKEW", "RATE_EXCEEDED"} & set(d.codes),
+                            d.codes)
+        self.assertLessEqual(self.rail.amount_debited, CEILING * 2)
+
+    def test_the_rate_limit_still_bites_without_any_claim(self):
+        """The honest path: no claimed_at at all, server clock frozen."""
+        gate = self.build(rate_limit=Window(seconds=3600, max_charges=2))
+        outcomes = []
+        for i in range(5):
+            self.n += 1
+            outcomes.append(gate.authorize(ChargeRequest(
+                mandate_id="token_test", amount=CEILING,
+                idempotency_key=f"honest-{i}", merchant=f"shop-{self.n}",
+            )).allowed)
+        self.assertEqual(outcomes, [True, True, False, False, False])
+        self.assertEqual(self.rail.amount_debited, CEILING * 2)
+
+    def test_a_skewed_claim_is_reported(self):
+        gate = self.build()
+        self.n += 1
+        d = gate.authorize(ChargeRequest(
+            mandate_id="token_test", amount=CEILING, idempotency_key="skew",
+            merchant="shop-x", claimed_at=T0 + 99_999))
+        self.assertFalse(d.allowed)
+        self.assertIn("CLOCK_SKEW", d.codes)
+
+    def test_an_honest_claim_passes(self):
+        gate = self.build()
+        self.n += 1
+        d = gate.authorize(ChargeRequest(
+            mandate_id="token_test", amount=CEILING, idempotency_key="ok",
+            merchant="shop-y", claimed_at=T0 + 5))
+        self.assertTrue(d.allowed)
+
+    def test_expiry_uses_server_time_not_the_claim(self):
+        gate = self.build(expires_at=T0 + 100)
+        self.clock["now"] = T0 + 500
+        self.n += 1
+        d = gate.authorize(ChargeRequest(
+            mandate_id="token_test", amount=CEILING, idempotency_key="exp",
+            merchant="shop-z", claimed_at=T0 + 500))
+        self.assertFalse(d.allowed)
+        self.assertIn("POLICY_EXPIRED", d.codes)
 
 
 class TestRailStillEnforcesItsOwn(GateTestCase):
@@ -223,24 +303,28 @@ class TestLedgerIsTheState(GateTestCase):
         self.charge(gate, at=T0)
         self.charge(gate, at=T0 + 60)
 
-        reopened = Gate(gate.envelope, self.ledger, self.rail, SECRET)
+        self.clock["now"] = T0 + 120
+        reopened = Gate(gate.envelope, self.ledger, self.rail, SECRET,
+                        clock=lambda: self.clock["now"])
         d = reopened.authorize(ChargeRequest(
-            mandate_id="token_test", amount=CEILING, at=T0 + 120,
+            mandate_id="token_test", amount=CEILING,
             idempotency_key="fresh"))
         self.assertFalse(d.allowed)
         self.assertIn("CUMULATIVE_EXCEEDED", d.codes)
 
     def test_ledger_verifies_and_records_refusals_too(self):
+        """
+        A refusal must be recorded, not just enforced. "We declined this" is
+        evidence a merchant needs as much as "we allowed this".
+        """
         gate = self.build(cumulative_max=100)
         self.charge(gate)
         self.ledger.verify()
-        pack = self.ledger.evidence_pack("token_test")
-        self.assertTrue(pack["integrity"]["ok"])
-        kinds = [e["kind"] for e in pack["entries"]]
-        self.assertIn("decision", kinds)
-        refused = [e for e in pack["entries"]
-                   if e["kind"] == "decision" and not e["payload"]["allowed"]]
-        self.assertEqual(len(refused), 1)
+
+        entries = [e for e in self.ledger.entries() if e.kind == "decision"]
+        self.assertEqual(len(entries), 1)
+        self.assertFalse(entries[0].payload["allowed"])
+        self.assertIn("CUMULATIVE_EXCEEDED", entries[0].payload["codes"])
 
 
 if __name__ == "__main__":

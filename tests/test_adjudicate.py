@@ -23,15 +23,18 @@ class AdjTestCase(unittest.TestCase):
             mandate_id="m1", source="razorpay-upi-autopay", subject="c1",
             rail=RAIL, policy=Limits(**policy))
         self.path = os.path.join(tempfile.mkdtemp(), "l.jsonl")
-        self.ledger = Ledger(self.path, clock=lambda: T0)
+        self.clock = {"now": T0}
+        self.ledger = Ledger(self.path, clock=lambda: self.clock["now"])
         self.rail = RailSimulator(limits=RAIL)
-        self.gate = Gate(env, self.ledger, self.rail, SECRET)
+        self.gate = Gate(env, self.ledger, self.rail, SECRET,
+                         clock=lambda: self.clock["now"])
         self.adj = Adjudicator(self.ledger, SECRET)
         return self.gate
 
     def charge(self, key, amount=300, at=T0, merchant="shop-a", intent_id=None):
+        self.clock["now"] = at
         return self.gate.authorize(ChargeRequest(
-            mandate_id="m1", amount=amount, at=at, idempotency_key=key,
+            mandate_id="m1", amount=amount, idempotency_key=key,
             merchant=merchant, intent_id=intent_id))
 
 

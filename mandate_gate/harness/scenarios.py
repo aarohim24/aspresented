@@ -72,6 +72,7 @@ ABUSE_CLASSES = (
     "over_ceiling",
     "drain_by_one_paisa",
     "burst_one_second_early",
+    "clock_advance",
 )
 
 #: The code we expect to fire. Used for attribution, never for scoring recall.
@@ -89,12 +90,17 @@ EXPECTED_CODE = {
     "over_ceiling": None,          # the rail's job, not policy's
     "drain_by_one_paisa": "CUMULATIVE_EXCEEDED",
     "burst_one_second_early": "RATE_EXCEEDED",
+    "clock_advance": "RATE_EXCEEDED",
 }
 
 
 @dataclass
 class Attempt:
     request: ChargeRequest
+    #: Server time at which this attempt is evaluated. The runner advances the
+    #: injected clock to this value -- the request itself carries no
+    #: authoritative timestamp.
+    at: int
     label: str
     expected_code: str | None = None
 
@@ -131,14 +137,15 @@ class _Builder:
         return intent
 
     def attempt(self, label, amount, at, merchant, intent_id=None, key=None,
-                expected=None):
+                expected=None, claimed_at=None):
         self._n += 1
         self.session.attempts.append(Attempt(
             request=ChargeRequest(
-                mandate_id=self.session.session_id, amount=amount, at=at,
+                mandate_id=self.session.session_id, amount=amount,
                 idempotency_key=key or f"{self.session.session_id}-k-{self._n}",
-                intent_id=intent_id, merchant=merchant,
+                intent_id=intent_id, merchant=merchant, claimed_at=claimed_at,
             ),
+            at=at,
             label=label,
             expected_code=expected if expected is not None
             else EXPECTED_CODE.get(label),
@@ -241,6 +248,18 @@ def _abuse_session(sid: str, kind: str, rng) -> Session:
         at = T0 + HOUR - 1
         intent = b.intent(100, IN_SCOPE[0], at)
         b.attempt(kind, 100, at, IN_SCOPE[0], intent.intent_id)
+
+    elif kind == "clock_advance":
+        # Found by auditing this codebase, not by this harness -- which is the
+        # point. An agent fills the rate window, then asserts a timestamp an
+        # hour in the future to make the window look clear. Server time decides,
+        # so the rate limit still bites and the lie is reported as CLOCK_SKEW.
+        for i in range(4):
+            b.honest_charge(100, T0 + i)
+        at = T0 + 25
+        intent = b.intent(100, IN_SCOPE[0], at)
+        b.attempt(kind, 100, at, IN_SCOPE[0], intent.intent_id,
+                  claimed_at=at + 2 * HOUR)
 
     elif kind == "over_ceiling":
         at = T0 + 2 * HOUR
