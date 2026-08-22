@@ -1,0 +1,125 @@
+"""
+Charges, intents, and decisions.
+
+An `Intent` is the record of what the principal actually asked for: spend up to
+this much, at this merchant, before this time. A `ChargeRequest` is an agent
+asking to move money. The gate's job is to decide whether the second is
+justified by the first, and to say why not in terms an agent can act on.
+
+Intents are signed server-side with an HMAC. That proves the record was not
+altered after it was written. It does *not* prove a specific human authored it
+-- real non-repudiation needs a device-held key. The README says so plainly;
+so does this docstring, because the distinction matters.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+from dataclasses import dataclass, field, replace
+
+
+def _canonical(payload: dict) -> bytes:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                      default=str).encode()
+
+
+@dataclass(frozen=True)
+class Intent:
+    """What the principal asked for. The thing a charge must be justified by."""
+
+    intent_id: str
+    mandate_id: str
+    max_amount: int                  # paise; ceiling for charges under this intent
+    expires_at: int
+    merchant: str | None = None
+    category: str | None = None
+    signature: str = ""
+
+    def _payload(self) -> dict:
+        return {
+            "intent_id": self.intent_id,
+            "mandate_id": self.mandate_id,
+            "max_amount": self.max_amount,
+            "expires_at": self.expires_at,
+            "merchant": self.merchant,
+            "category": self.category,
+        }
+
+    def signed(self, secret: bytes) -> "Intent":
+        digest = hmac.new(secret, _canonical(self._payload()),
+                          hashlib.sha256).hexdigest()
+        return replace(self, signature=digest)
+
+    def signature_valid(self, secret: bytes) -> bool:
+        if not self.signature:
+            return False
+        expected = hmac.new(secret, _canonical(self._payload()),
+                            hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, self.signature)
+
+
+@dataclass(frozen=True)
+class ChargeRequest:
+    """An agent asking to move money against a mandate."""
+
+    mandate_id: str
+    amount: int                      # paise
+    at: int                          # unix seconds
+    idempotency_key: str
+    intent_id: str | None = None
+    merchant: str | None = None
+    category: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.amount <= 0:
+            raise ValueError("charge amount must be positive")
+        if not self.idempotency_key:
+            raise ValueError("idempotency_key is required")
+
+
+@dataclass(frozen=True)
+class Refusal:
+    """
+    Why a charge was refused, in terms an agent can act on.
+
+    `remediation` exists because a bare 403 teaches an agent nothing: it will
+    retry the same call. Naming the field and the fix is what lets a
+    well-behaved agent correct itself instead of hammering.
+    """
+
+    code: str
+    field: str
+    detail: str
+    remediation: str
+
+    def as_dict(self) -> dict:
+        return {"code": self.code, "field": self.field,
+                "detail": self.detail, "remediation": self.remediation}
+
+
+@dataclass(frozen=True)
+class Decision:
+    allowed: bool
+    refusals: tuple = ()
+    rail_error: str | None = None
+    charge_id: str | None = None
+    refused_by: str | None = None    # "policy" | "rail" | None
+    #: True when this is the recorded answer to a key already seen. A correct
+    #: idempotent replay is not a refusal -- see Gate.authorize.
+    replayed: bool = False
+
+    @property
+    def codes(self) -> tuple:
+        return tuple(r.code for r in self.refusals)
+
+    def as_dict(self) -> dict:
+        return {
+            "allowed": self.allowed,
+            "replayed": self.replayed,
+            "refused_by": self.refused_by,
+            "refusals": [r.as_dict() for r in self.refusals],
+            "rail_error": self.rail_error,
+            "charge_id": self.charge_id,
+        }
