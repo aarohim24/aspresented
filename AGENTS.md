@@ -18,9 +18,10 @@ stays dependency-free.
 ## Quick Start
 
 ```bash
-python3 -W error::ResourceWarning -m unittest discover -s tests -t .  # 106 tests
+python3 -W error::ResourceWarning -m unittest discover -s tests -t .  # 135 tests
 python3 tools/run_harness.py        # integrity preflight, then held-out scores
 python3 tools/gen_coverage.py       # regenerate the README coverage table
+python3 tools/run_attack.py          # adversarial sweep + invariant oracle
 python3 tools/serve.py              # console at http://127.0.0.1:8700
 
 export RZP_KEY_ID=rzp_test_... RZP_KEY_SECRET=...
@@ -37,6 +38,9 @@ native mandate JSON
        -> ledger.Ledger            append-only hash chain (also the state)
        -> rail.RailSimulator       documented enforcement only
   -> adjudicate.Adjudicator        dispute-time verdict, from the ledger alone
+
+attack/  an attacker sees only what a mandate holder sees; the gate decides;
+         invariants.check judges the finished ledger independently
 ```
 
 - **Owns:** the constraint vocabulary, policy evaluation, the decision log, and
@@ -123,6 +127,7 @@ Two repo-specific additions:
 |-------|---------|
 | **mandate-invariants** | Touching envelopes, adapters, limits, or anything money-shaped |
 | **adversarial-eval** | Adding an abuse class, a boundary case, or reading harness numbers |
+| **adversarial-attack** | Writing or extending an attacker; reading a sweep |
 | **evidence-integrity** | Touching the ledger, intents, or the adjudicator |
 | **rail-adapter** | Adding support for a new payment rail |
 

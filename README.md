@@ -148,6 +148,68 @@ Two abuse classes are deliberately evasive for the same reason:
 `burst_one_second_early` fires one second before the rate window clears. Both
 are caught.
 
+### An attacker that never read the checks
+
+```
+python3 tools/run_attack.py
+```
+
+The harness scores traffic its author wrote, which cannot find a flaw in its
+author's model of the attacker -- as it did not find the caller-controlled
+clock. So there is a second instrument.
+
+An attacker sees a `Briefing` and nothing else: the mandate's own terms, the
+merchants and intents it has observed, and every refusal it has received. It
+does **not** see the merchant's policy, and a test asserts that. Then the
+finished ledger is judged by `invariants.check`, which states properties over
+what actually settled rather than re-running the gate's own logic -- a
+re-implementation reading the same request field would have agreed with the
+clock bug.
+
+```
+   tempo  settled    extracted   of cap  codes reached
+      0s        4      Rs 8.07     40%  6
+    600s        6     Rs 18.07     90%  6
+   1200s        6     Rs 18.07     90%  6
+   4000s        3     Rs 11.01     55%  4
+  86400s        1      Rs 1.01      5%  5
+
+refusal codes reached: 9/9
+closest approach to the cumulative cap: 90% (Rs 20.00)
+NO INVARIANT VIOLATIONS AT ANY TEMPO
+```
+
+Read the two columns differently. **Extracted** is what the attacker got away
+with, and a mandate is meant to be spent -- reaching 90% of the cap is the
+expected outcome, not a finding. **Violations** are invariants the gate let be
+broken, and any one is a defect. CI fails on any.
+
+Three things this instrument taught its own author:
+
+**Tempo decides which constraint binds.** At one instant the rate window is
+exhausted after four charges and the cumulative cap is never reached; twenty
+minutes apart puts the cap and the count under real pressure; a day apart
+outlives the mandate. A single tempo under-covers, so the tool sweeps.
+
+**`DUPLICATE_CHARGE` is hygiene, not a control.** The fingerprint is (intent,
+merchant, amount), so a first version of the fuzzer sending round numbers spent
+32 of 40 attempts refused as a duplicate and never reached the deeper
+constraints. One paise of jitter walks past it. It catches the honest retry
+storm it was built for; it does not stop an adversary.
+
+**Two checks were unreachable.** The coverage report named `POLICY_EXPIRED` and
+`INTENT_UNBOUND` as never provoked -- gaps in the attacker, not the gate. An
+`unbind` strategy and a day-long tempo closed both. An unreached code is
+reported either way rather than quietly dropped.
+
+The oracle has its own integrity test, and it is the one that gives the sweep
+meaning: with the cumulative check removed from the gate, the attacker must
+exceed the cap and the oracle must say so. If that test ever passed trivially,
+the sweep would have stopped measuring anything.
+
+A clean sweep is not proof of correctness. It means one attacker, at five
+tempos, within one budget, found nothing.
+
 ### Why the numbers are trustworthy
 
 The harness will not print a score until two controls pass:
@@ -296,17 +358,23 @@ mandate_gate/
     razorpay_upi.py      wired to live test-mode API
     ap2.py               fixture-verified mapper
     card_on_file.py      fixture-verified mapper
+  attack/
+    base.py              what an attacker may see -- and may not
+    fuzzer.py            deterministic, adaptive, no credentials
+    invariants.py        the oracle: properties over the finished ledger
+    session.py           run an attacker against a real gate
   harness/
     scenarios.py         labelled traffic: honest, boundary, abusive
     runner.py            per-session execution, ledger verified after each
     metrics.py           false-decline rate first, per-class recall named
 tools/gen_coverage.py    regenerates the coverage table
 tools/run_harness.py     integrity preflight, then held-out score
+tools/run_attack.py      adversarial sweep, judged by the invariant oracle
 evidence/                live API findings
   adjudicate.py          dispute-time verdicts, from the ledger alone
 tools/serve.py           local console (stdlib http.server)
   fixtures.py            canonical sample mandates, with provenance
-tests/                   106 tests, stdlib only
+tests/                   135 tests, stdlib only
 ```
 
 The ledger is a tamper-evident local log, not a blockchain, and claims nothing
@@ -320,8 +388,9 @@ No dependencies beyond the standard library. Python 3.9 or newer -- 3.9 is the
 floor because that is what a stock macOS toolchain ships.
 
 ```bash
-python3 -W error::ResourceWarning -m unittest discover -s tests -t .   # 106 tests
+python3 -W error::ResourceWarning -m unittest discover -s tests -t .   # 135 tests
 python3 tools/run_harness.py                                           # scores
+python3 tools/run_attack.py                                            # sweep
 python3 tools/gen_coverage.py                                          # the table
 python3 tools/serve.py                                                 # the console
 ```
@@ -330,6 +399,12 @@ Every number in this README is reproducible. The harness is seeded and the
 split is deterministic, so the figures above are what you will see.
 
 ## Still to come
+
+- **A model-driven attacker** behind the same `Attacker` protocol and the same
+  `Briefing`. The fuzzer is systematic but bounded by the strategies its author
+  imagined; a model given the mandate, the tool schema and a goal is not. The
+  core package stays dependency-free and transcripts get committed to
+  `evidence/`, so a finding survives without credentials.
 
 - **Evidence-pack export** in the format a dispute rail would want, once one
   exists that has anywhere to put it.
