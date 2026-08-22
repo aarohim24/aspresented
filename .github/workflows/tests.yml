@@ -34,3 +34,8 @@ jobs:
 
       - name: Adversarial harness must pass its integrity preflight
         run: python tools/run_harness.py
+
+      - name: Adversarial sweep must find no invariant violation
+        # Exits non-zero when the oracle finds the gate allowed an invariant to
+        # be broken. A regression that lets value escape fails the build.
+        run: python tools/run_attack.py
