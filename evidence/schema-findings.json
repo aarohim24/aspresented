@@ -1,0 +1,49 @@
+{
+  "generated_at": 1787390013,
+  "customer_id": "cust_TSlIk33v6oM6N3",
+  "baseline_order": "order_TSlIkcPX1mMW9W",
+  "findings": [
+    {
+      "constraint": "cumulative cap",
+      "field": "cumulative_max_amount",
+      "verdict": "REJECTED",
+      "detail": "BAD_REQUEST_ERROR | cumulative_max_amount is/are not require"
+    },
+    {
+      "constraint": "cumulative cap alt",
+      "field": "total_amount",
+      "verdict": "REJECTED",
+      "detail": "BAD_REQUEST_ERROR | total_amount is/are not required and sho"
+    },
+    {
+      "constraint": "debit count cap",
+      "field": "max_debits",
+      "verdict": "REJECTED",
+      "detail": "BAD_REQUEST_ERROR | max_debits is/are not required and shoul"
+    },
+    {
+      "constraint": "debit count alt",
+      "field": "total_count",
+      "verdict": "REJECTED",
+      "detail": "BAD_REQUEST_ERROR | total_count is/are not required and shou"
+    },
+    {
+      "constraint": "velocity / rate",
+      "field": "max_debits_per_day",
+      "verdict": "REJECTED",
+      "detail": "BAD_REQUEST_ERROR | max_debits_per_day is/are not required a"
+    },
+    {
+      "constraint": "merchant scope",
+      "field": "allowed_merchants",
+      "verdict": "REJECTED",
+      "detail": "BAD_REQUEST_ERROR | allowed_merchants is/are not required an"
+    },
+    {
+      "constraint": "category scope",
+      "field": "allowed_mcc",
+      "verdict": "REJECTED",
+      "detail": "BAD_REQUEST_ERROR | allowed_mcc is/are not required and shou"
+    }
+  ]
+}
