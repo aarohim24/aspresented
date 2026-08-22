@@ -92,6 +92,50 @@ class TestEnvelope(unittest.TestCase):
         self.assertTrue(self.rail_only(cumulative_max=1500).unenforced_by_rail)
 
 
+class TestEffectiveNeverWidens(unittest.TestCase):
+    """
+    Regression tests. `effective` promised "the tighter of rail and policy,
+    field by field" and broke that promise for two of them: rate_limit and
+    scope were `policy or rail`, so a loose policy silently discarded a tight
+    rail constraint.
+    """
+
+    def test_a_loose_policy_rate_cannot_beat_a_tight_rail_rate(self):
+        env = MandateEnvelope(
+            mandate_id="m", source="s", subject="c",
+            rail=Limits(rate_limit=Window(seconds=30 * 86400, max_charges=1)),
+            policy=Limits(rate_limit=Window(seconds=86400, max_charges=10)))
+        self.assertEqual(env.effective.rate_limit.seconds, 30 * 86400)
+
+    def test_both_windows_are_reported_for_enforcement(self):
+        """The gate satisfies all of them; collapsing to one hides bursts."""
+        env = MandateEnvelope(
+            mandate_id="m", source="s", subject="c",
+            rail=Limits(rate_limit=Window(seconds=86400, max_charges=10)),
+            policy=Limits(rate_limit=Window(seconds=3600, max_charges=5)))
+        self.assertEqual(len(env.rate_windows), 2)
+
+    def test_policy_scope_does_not_discard_a_rail_scope(self):
+        env = MandateEnvelope(
+            mandate_id="m", source="s", subject="c",
+            rail=Limits(scope=Scope(categories=frozenset({"5411"}))),
+            policy=Limits(scope=Scope(merchants=frozenset({"shop-a"}))))
+        eff = env.effective.scope
+        self.assertEqual(eff.categories, frozenset({"5411"}))
+        self.assertEqual(eff.merchants, frozenset({"shop-a"}))
+
+    def test_intersect_narrows_a_shared_dimension(self):
+        a = Scope(merchants=frozenset({"x", "y"}))
+        b = Scope(merchants=frozenset({"y", "z"}))
+        self.assertEqual(a.intersect(b).merchants, frozenset({"y"}))
+
+    def test_intersect_treats_empty_as_unrestricted(self):
+        """An empty set means "no restriction", not "an empty intersection"."""
+        restricted = Scope(merchants=frozenset({"x"}))
+        self.assertEqual(restricted.intersect(Scope()).merchants,
+                         frozenset({"x"}))
+
+
 class TestConstraintState(unittest.TestCase):
     """
     ENFORCED vs DECLARED is the distinction the project turns on: a constraint

@@ -79,6 +79,11 @@ class Window:
         if self.max_charges <= 0:
             raise ValueError("window max_charges must be positive")
 
+    @property
+    def rate(self) -> float:
+        """Charges per second. Lower is tighter."""
+        return self.max_charges / self.seconds
+
 
 @dataclass(frozen=True)
 class Scope:
@@ -97,6 +102,29 @@ class Scope:
     @property
     def is_unrestricted(self) -> bool:
         return not self.merchants and not self.categories
+
+    def intersect(self, other: "Scope | None") -> "Scope":
+        """
+        The narrower of two scopes, dimension by dimension.
+
+        An empty collection means unrestricted, so it must not be treated as an
+        empty intersection -- narrowing against "no restriction" leaves the
+        other side untouched. Getting this backwards would silently discard a
+        restriction, which is how the previous implementation lost a rail's
+        category limit whenever policy set a merchant limit.
+        """
+        if other is None:
+            return self
+
+        def narrower(a: frozenset, b: frozenset) -> frozenset:
+            if not a:
+                return b
+            if not b:
+                return a
+            return a & b
+
+        return Scope(merchants=narrower(self.merchants, other.merchants),
+                     categories=narrower(self.categories, other.categories))
 
 
 @dataclass(frozen=True)
@@ -175,7 +203,21 @@ class MandateEnvelope:
                 return a
             return min(a, b)
 
-        merged_scope = self.policy.scope or self.rail.scope
+        # Both dimensions narrow. `policy.scope or rail.scope` -- the previous
+        # implementation -- discarded the rail's restriction outright.
+        if self.rail.scope is None:
+            merged_scope = self.policy.scope
+        else:
+            merged_scope = self.rail.scope.intersect(self.policy.scope)
+
+        # Reported as the tighter of the two by rate. The gate enforces *every*
+        # window (see `rate_windows`), because two windows of different periods
+        # are not interchangeable: 10/day and 5/hour each permit bursts the
+        # other forbids.
+        windows = [w for w in (self.rail.rate_limit, self.policy.rate_limit)
+                   if w is not None]
+        tightest = min(windows, key=lambda w: w.rate) if windows else None
+
         return Limits(
             per_charge_max=tighter(self.rail.per_charge_max,
                                   self.policy.per_charge_max),
@@ -183,11 +225,29 @@ class MandateEnvelope:
             cumulative_max=tighter(self.rail.cumulative_max,
                                    self.policy.cumulative_max),
             max_charges=tighter(self.rail.max_charges, self.policy.max_charges),
-            rate_limit=self.policy.rate_limit or self.rail.rate_limit,
+            rate_limit=tightest,
             scope=merged_scope,
             requires_intent_binding=(self.rail.requires_intent_binding
                                      or self.policy.requires_intent_binding),
         )
+
+    @property
+    def rate_windows(self) -> tuple:
+        """
+        Every rate window that applies. The gate must satisfy all of them.
+
+        Collapsing these to one would let a loose window mask a tight one --
+        `effective.rate_limit` reports only the tightest by rate and is for
+        display, not enforcement.
+        """
+        return tuple(w for w in (self.rail.rate_limit, self.policy.rate_limit)
+                     if w is not None)
+
+    @property
+    def scopes(self) -> tuple:
+        """Every scope that applies. A charge must satisfy all of them."""
+        return tuple(sc for sc in (self.rail.scope, self.policy.scope)
+                     if sc is not None and not sc.is_unrestricted)
 
     def state_of(self, constraint: Constraint) -> str:
         """

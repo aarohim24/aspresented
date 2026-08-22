@@ -235,6 +235,45 @@ class TestPolicyChecks(GateTestCase):
         self.assertIn("SCOPE_VIOLATION", d.codes)
 
 
+class TestAllConstraintsApply(GateTestCase):
+    """
+    A rail constraint and a policy constraint of the same kind must both bind.
+    Previously the policy one replaced the rail one outright.
+    """
+
+    def rail_and_policy(self, rail_extra, **policy):
+        rail_limits = Limits(per_charge_max=CEILING,
+                             expires_at=T0 + 86_400 * 30, **rail_extra)
+        env = MandateEnvelope(
+            mandate_id="token_test", source="razorpay-upi-autopay",
+            subject="cust_test", rail=rail_limits, policy=Limits(**policy))
+        path = os.path.join(tempfile.mkdtemp(), "l.jsonl")
+        self.clock = {"now": T0}
+        self.ledger = Ledger(path, clock=lambda: self.clock["now"])
+        self.rail = RailSimulator(limits=rail_limits)
+        self.rail_limits = rail_limits
+        self.n = 0
+        return Gate(env, self.ledger, self.rail, SECRET,
+                    clock=lambda: self.clock["now"])
+
+    def test_a_tight_rail_cadence_still_binds_under_a_loose_policy(self):
+        gate = self.rail_and_policy(
+            {"rate_limit": Window(seconds=3600, max_charges=1)},
+            rate_limit=Window(seconds=3600, max_charges=10))
+        outcomes = [self.charge(gate, at=T0 + i).allowed for i in range(3)]
+        self.assertEqual(outcomes, [True, False, False])
+
+    def test_a_rail_category_scope_still_binds_under_a_merchant_policy(self):
+        gate = self.rail_and_policy(
+            {"scope": Scope(categories=frozenset({"5411"}))},
+            scope=Scope(merchants=frozenset({"shop-1"})))
+        self.assertTrue(
+            self.charge(gate, merchant="shop-1", category="5411").allowed)
+        d = self.charge(gate, merchant="shop-1", category="5812")
+        self.assertFalse(d.allowed)
+        self.assertIn("SCOPE_VIOLATION", d.codes)
+
+
 class TestIntentBinding(GateTestCase):
     def bound_gate(self):
         gate = self.build(requires_intent_binding=True)
