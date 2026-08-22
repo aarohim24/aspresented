@@ -26,7 +26,16 @@ from ..rail import RailSimulator
 from .metrics import Outcome
 from .scenarios import POLICY, RAIL
 
-SECRET = b"harness-intent-secret"
+def _demo_secret(name: str) -> bytes:
+    """
+    Signing key for the demo. Read from the environment so a literal in source
+    never becomes the default anywhere real; falls back to a clearly-labelled
+    value because this path only ever signs synthetic intents.
+    """
+    return os.environ.get("MANDATE_GATE_INTENT_SECRET",
+                          f"DEMO-ONLY-not-a-secret-{name}").encode()
+
+SECRET = _demo_secret("harness")
 
 
 def _install_intents(gate: Gate, session) -> None:

@@ -17,6 +17,7 @@ the whole argument in two clicks.
 from __future__ import annotations
 
 import json
+import os
 import random
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -49,7 +50,16 @@ from mandate_gate.rail import RailSimulator                          # noqa: E40
 PORT = 8700
 T0 = 1_700_000_000
 HOUR = 3600
-SECRET = b"console-intent-secret"
+def _demo_secret(name: str) -> bytes:
+    """
+    Signing key for the demo. Read from the environment so a literal in source
+    never becomes the default anywhere real; falls back to a clearly-labelled
+    value because this path only ever signs synthetic intents.
+    """
+    return os.environ.get("MANDATE_GATE_INTENT_SECRET",
+                          f"DEMO-ONLY-not-a-secret-{name}").encode()
+
+SECRET = _demo_secret("console")
 LEDGER_PATH = ROOT / "evidence" / "console-ledger.jsonl"
 
 CONSTRAINT_LABELS = {
