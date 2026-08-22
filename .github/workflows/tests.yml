@@ -1,0 +1,36 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the floor: the project runs on a stock macOS toolchain.
+        python-version: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run tests
+        # ResourceWarning is promoted to an error: a leaked file handle in a
+        # project whose evidence lives in append-only logs is a real defect.
+        run: python -m unittest discover -s tests -t . -v
+
+      - name: Fail on unraised warnings
+        run: python -W error::ResourceWarning -m unittest discover -s tests -t .
+
+      - name: Regenerate the coverage table
+        # The README table is generated, not typed. If this drifts, the docs lie.
+        run: python tools/gen_coverage.py
+
+      - name: Adversarial harness must pass its integrity preflight
+        run: python tools/run_harness.py
