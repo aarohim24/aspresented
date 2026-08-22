@@ -99,6 +99,22 @@ class ChargeRequest:
             raise ValueError("idempotency_key is required")
 
 
+#: Every refusal the gate can emit. Declared in one place so an adversarial
+#: run can report which it failed to provoke -- an unreached code is either a
+#: gap in the attacker or a check nothing exercises, and both are worth seeing.
+REFUSAL_CODES = (
+    "CLOCK_SKEW",
+    "DUPLICATE_CHARGE",
+    "POLICY_EXPIRED",
+    "CUMULATIVE_EXCEEDED",
+    "CHARGE_COUNT_EXCEEDED",
+    "RATE_EXCEEDED",
+    "SCOPE_VIOLATION",
+    "INTENT_UNBOUND",
+    "INTENT_MISMATCH",
+)
+
+
 @dataclass(frozen=True)
 class Refusal:
     """
