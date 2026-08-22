@@ -1,7 +1,8 @@
 import unittest
 
-from mandate_gate.envelope import (Constraint, Limits, MandateEnvelope, Scope,
-                                   Window, coverage_matrix)
+from mandate_gate.envelope import (ABSENT, DECLARED, ENFORCED, Constraint,
+                                   Limits, MandateEnvelope, Scope, Window,
+                                   coverage_matrix)
 
 
 class TestLimits(unittest.TestCase):
@@ -91,15 +92,47 @@ class TestEnvelope(unittest.TestCase):
         self.assertTrue(self.rail_only(cumulative_max=1500).unenforced_by_rail)
 
 
+class TestConstraintState(unittest.TestCase):
+    """
+    ENFORCED vs DECLARED is the distinction the project turns on: a constraint
+    written into a credential is not one a network will refuse to breach.
+    """
+
+    def setUp(self):
+        self.env = MandateEnvelope(
+            mandate_id="m", source="rail-a", subject="s",
+            rail=Limits(per_charge_max=500),
+            policy=Limits(cumulative_max=2000),
+        )
+
+    def test_rail_constraint_is_enforced(self):
+        self.assertEqual(self.env.state_of(Constraint.PER_CHARGE_MAX), ENFORCED)
+
+    def test_policy_only_constraint_is_declared(self):
+        self.assertEqual(self.env.state_of(Constraint.CUMULATIVE_MAX), DECLARED)
+
+    def test_unmentioned_constraint_is_absent(self):
+        self.assertEqual(self.env.state_of(Constraint.SCOPE), ABSENT)
+
+    def test_rail_wins_when_both_mention_it(self):
+        env = MandateEnvelope(
+            mandate_id="m", source="r", subject="s",
+            rail=Limits(per_charge_max=500),
+            policy=Limits(per_charge_max=100))
+        self.assertEqual(env.state_of(Constraint.PER_CHARGE_MAX), ENFORCED)
+
+
 class TestCoverageMatrix(unittest.TestCase):
-    def test_matrix_shape(self):
+    def test_matrix_reports_tri_state(self):
         env = MandateEnvelope(
             mandate_id="m", source="rail-a", subject="s",
             rail=Limits(per_charge_max=500),
+            policy=Limits(cumulative_max=2000),
         )
         matrix = coverage_matrix([env])
-        self.assertTrue(matrix["rail-a"]["per_charge_max"])
-        self.assertFalse(matrix["rail-a"]["cumulative_max"])
+        self.assertEqual(matrix["rail-a"]["per_charge_max"], ENFORCED)
+        self.assertEqual(matrix["rail-a"]["cumulative_max"], DECLARED)
+        self.assertEqual(matrix["rail-a"]["scope"], ABSENT)
 
 
 if __name__ == "__main__":

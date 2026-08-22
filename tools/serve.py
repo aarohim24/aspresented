@@ -32,8 +32,11 @@ from mandate_gate.adapters.card_on_file import CardOnFileAdapter    # noqa: E402
 from mandate_gate.adapters.razorpay_upi import RazorpayUpiAdapter   # noqa: E402
 from mandate_gate.adjudicate import Adjudicator                     # noqa: E402
 from mandate_gate.charge import ChargeRequest, Intent               # noqa: E402
-from mandate_gate.envelope import (Constraint, Limits, MandateEnvelope,
-                                   Scope, Window, coverage_matrix)  # noqa: E402
+from mandate_gate.envelope import (ABSENT, DECLARED, ENFORCED,       # noqa: E402
+                                   Constraint, Limits, MandateEnvelope,
+                                   Scope, Window)
+from mandate_gate.fixtures import (AP2_OPEN_MANDATE, CARD_ON_FILE,   # noqa: E402
+                                   RAZORPAY_AS_PRESENTED, RAZORPAY_MONTHLY)
 from mandate_gate.gate import Gate                                  # noqa: E402
 from mandate_gate.harness import runner                             # noqa: E402
 from mandate_gate.harness.metrics import score                      # noqa: E402
@@ -59,36 +62,31 @@ CONSTRAINT_LABELS = {
     Constraint.INTENT_BINDING: "Intent binding",
 }
 
-FIXTURES = {
-    RazorpayUpiAdapter: {
-        "id": "order_TSlIkcPX1mMW9W", "customer_id": "cust_TSlIk33v6oM6N3",
-        "token": {"max_amount": 500, "expire_at": 1789982013,
-                  "frequency": "as_presented",
-                  "type": "single_block_multiple_debit"}},
-    AP2Adapter: {
-        "intent_mandate": {"id": "im_1", "subject": "user_1",
-                           "expires_at": 1789982013},
-        "cart_mandate": {"id": "cm_1", "cart_hash": "abc", "signature": "sig"}},
-    CardOnFileAdapter: {"token_id": "tok_1", "cardholder_ref": "ch_1",
-                        "expires_at": 1789982013, "allowed_mcc": ["5411"]},
-}
+COLUMNS = [
+    ("razorpay (as_presented, default)", RazorpayUpiAdapter, RAZORPAY_AS_PRESENTED),
+    ("razorpay (monthly)", RazorpayUpiAdapter, RAZORPAY_MONTHLY),
+    ("ap2 (open mandate)", AP2Adapter, AP2_OPEN_MANDATE),
+    ("card-on-file", CardOnFileAdapter, CARD_ON_FILE),
+]
 
 
 # ---------------------------------------------------------------- coverage
 def build_coverage() -> dict:
-    envelopes = [a.normalise(raw) for a, raw in FIXTURES.items()]
-    matrix = coverage_matrix(envelopes)
-    rails = list(matrix)
+    envelopes = [(label, adapter.normalise(raw))
+                 for label, adapter, raw in COLUMNS]
     rows = []
     for c in Constraint:
+        states = [env.state_of(c) for _, env in envelopes]
         rows.append({
             "label": CONSTRAINT_LABELS[c],
-            "cells": [matrix[r][str(c)] for r in rails],
-            "absent_everywhere": not any(matrix[r][str(c)] for r in rails),
+            "cells": states,
+            # The claim that survived every correction: enforced by nobody.
+            "never_enforced": ENFORCED not in states,
+            "declared_only": (ENFORCED not in states and DECLARED in states),
         })
     return {
-        "rails": rails,
-        "wired": {s: a.WIRED for s, a in ADAPTERS.items()},
+        "rails": [label for label, _ in envelopes],
+        "wired": {a.SOURCE: a.WIRED for a in ADAPTERS.values()},
         "rows": rows,
     }
 
@@ -138,7 +136,8 @@ def build_harness(seed: int = 7) -> dict:
 def build_demo_ledger() -> Adjudicator:
     if LEDGER_PATH.exists():
         LEDGER_PATH.unlink()
-    ledger = Ledger(str(LEDGER_PATH), clock=lambda: T0)
+    server_time = {"now": T0}
+    ledger = Ledger(str(LEDGER_PATH), clock=lambda: server_time["now"])
 
     policy_no_binding = Limits(
         cumulative_max=2000, max_charges=6,
@@ -152,37 +151,48 @@ def build_demo_ledger() -> Adjudicator:
     env_a = MandateEnvelope(
         mandate_id="token_unbound", source="razorpay-upi-autopay",
         subject="cust_demo_a", rail=RAIL, policy=policy_no_binding)
-    gate_a = Gate(env_a, ledger, RailSimulator(limits=RAIL), SECRET)
+    gate_a = Gate(env_a, ledger, RailSimulator(limits=RAIL), SECRET,
+                  clock=lambda: server_time["now"])
     gate_a.authorize(ChargeRequest(
-        mandate_id="token_unbound", amount=450, at=T0,
+        mandate_id="token_unbound", amount=450,
         idempotency_key="A-groceries", merchant="shop-a"))
+    server_time["now"] = T0 + 2 * HOUR
     gate_a.authorize(ChargeRequest(
-        mandate_id="token_unbound", amount=500, at=T0 + 2 * HOUR,
+        mandate_id="token_unbound", amount=500,
         idempotency_key="A-refill", merchant="shop-b"))
 
     # --- mandate B: intent binding on. One line of policy different.
     env_b = MandateEnvelope(
         mandate_id="token_bound", source="razorpay-upi-autopay",
         subject="cust_demo_b", rail=RAIL, policy=policy_bound)
-    gate_b = Gate(env_b, ledger, RailSimulator(limits=RAIL), SECRET)
+    server_time["now"] = T0
+    gate_b = Gate(env_b, ledger, RailSimulator(limits=RAIL), SECRET,
+                  clock=lambda: server_time["now"])
     gate_b.record_intent(Intent(
         intent_id="int_weekly_milk", mandate_id="token_bound",
         max_amount=450, expires_at=T0 + 6 * HOUR, merchant="shop-a"))
     gate_b.authorize(ChargeRequest(
-        mandate_id="token_bound", amount=450, at=T0,
+        mandate_id="token_bound", amount=450,
         idempotency_key="B-milk", merchant="shop-a",
         intent_id="int_weekly_milk"))
 
     # a refused attempt: agent inflates the amount beyond what was approved
+    server_time["now"] = T0 + HOUR
     gate_b.authorize(ChargeRequest(
-        mandate_id="token_bound", amount=500, at=T0 + HOUR,
+        mandate_id="token_bound", amount=500,
         idempotency_key="B-inflated", merchant="shop-a",
         intent_id="int_weekly_milk"))
     # and one outside the authorised scope
+    server_time["now"] = T0 + 2 * HOUR
     gate_b.authorize(ChargeRequest(
-        mandate_id="token_bound", amount=200, at=T0 + 2 * HOUR,
+        mandate_id="token_bound", amount=200,
         idempotency_key="B-rogue", merchant="shop-rogue",
         intent_id="int_weekly_milk"))
+    # An agent lying about the clock to clear the rate window.
+    gate_b.authorize(ChargeRequest(
+        mandate_id="token_bound", amount=200,
+        idempotency_key="B-clock-lie", merchant="shop-a",
+        intent_id="int_weekly_milk", claimed_at=T0 + 99_999))
 
     return Adjudicator(ledger, SECRET)
 

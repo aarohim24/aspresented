@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
-Generate the rail coverage table as Markdown.
+Generate the constraint coverage table as Markdown.
 
 Run this rather than hand-editing the table in the README: a table typed by
-hand drifts from the adapters, and this one is the assertion the tests check.
+hand drifts from the adapters, and CI regenerates this one to catch that.
+
+Cells are tri-state, and the distinction is the project's whole argument:
+
+    enforced  -- the network guarantees it unaided
+    declared  -- written into the mandate, enforced only by this layer
+    --        -- nothing says it at all
 
     python3 tools/gen_coverage.py
 """
@@ -13,28 +19,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mandate_gate.adapters import ADAPTERS                       # noqa: E402
-from mandate_gate.adapters.ap2 import AP2Adapter                 # noqa: E402
-from mandate_gate.adapters.card_on_file import CardOnFileAdapter  # noqa: E402
-from mandate_gate.adapters.razorpay_upi import RazorpayUpiAdapter  # noqa: E402
-from mandate_gate.envelope import Constraint, coverage_matrix     # noqa: E402
+from mandate_gate.adapters import ADAPTERS                            # noqa: E402
+from mandate_gate.adapters.ap2 import AP2Adapter                      # noqa: E402
+from mandate_gate.adapters.card_on_file import CardOnFileAdapter      # noqa: E402
+from mandate_gate.adapters.razorpay_upi import RazorpayUpiAdapter     # noqa: E402
+from mandate_gate.envelope import (ABSENT, DECLARED, ENFORCED,        # noqa: E402
+                                   Constraint)
+from mandate_gate.fixtures import (AP2_OPEN_MANDATE, CARD_ON_FILE,    # noqa: E402
+                                   RAZORPAY_AS_PRESENTED,
+                                   RAZORPAY_MONTHLY)
 
-FIXTURES = {
-    RazorpayUpiAdapter: {
-        "id": "order_TSlIkcPX1mMW9W",
-        "customer_id": "cust_TSlIk33v6oM6N3",
-        "token": {"max_amount": 500, "expire_at": 1789982013,
-                  "frequency": "as_presented",
-                  "type": "single_block_multiple_debit"},
-    },
-    AP2Adapter: {
-        "intent_mandate": {"id": "im_1", "subject": "user_1",
-                           "expires_at": 1789982013},
-        "cart_mandate": {"id": "cm_1", "cart_hash": "abc", "signature": "sig"},
-    },
-    CardOnFileAdapter: {"token_id": "tok_1", "cardholder_ref": "ch_1",
-                        "expires_at": 1789982013, "allowed_mcc": ["5411"]},
-}
+# Razorpay appears twice on purpose: same rail, one field apart. The default
+# configuration for a new merchant is the weaker of the two.
+COLUMNS = [
+    ("razorpay (as_presented, default)", RazorpayUpiAdapter, RAZORPAY_AS_PRESENTED),
+    ("razorpay (monthly)", RazorpayUpiAdapter, RAZORPAY_MONTHLY),
+    ("ap2 (open mandate)", AP2Adapter, AP2_OPEN_MANDATE),
+    ("card-on-file", CardOnFileAdapter, CARD_ON_FILE),
+]
 
 LABELS = {
     Constraint.PER_CHARGE_MAX: "Per-charge ceiling",
@@ -46,21 +48,29 @@ LABELS = {
     Constraint.INTENT_BINDING: "Intent binding",
 }
 
-envelopes = [a.normalise(raw) for a, raw in FIXTURES.items()]
-matrix = coverage_matrix(envelopes)
-rails = list(matrix)
+CELL = {ENFORCED: "**enforced**", DECLARED: "declared", ABSENT: "--"}
 
-print("| Constraint | " + " | ".join(rails) + " |")
-print("|---|" + "---|" * len(rails))
+envelopes = [(label, adapter.normalise(raw)) for label, adapter, raw in COLUMNS]
+
+print("| Constraint | " + " | ".join(label for label, _ in envelopes) + " |")
+print("|---|" + "---|" * len(envelopes))
 for c in Constraint:
-    cells = ["yes" if matrix[r][str(c)] else "**no**" for r in rails]
+    cells = [CELL[env.state_of(c)] for _, env in envelopes]
     print(f"| {LABELS[c]} | " + " | ".join(cells) + " |")
 
 print()
 for source, adapter in ADAPTERS.items():
-    state = "wired to live API" if adapter.WIRED else "fixture-verified mapper"
+    state = "wired to live API" if adapter.WIRED else "mapper, not wired"
     print(f"- `{source}` -- {state}")
 
-absent = [LABELS[c] for c in Constraint
-          if not any(matrix[r][str(c)] for r in rails)]
-print(f"\nExpressed by no rail: {', '.join(absent)}")
+never_enforced = [LABELS[c] for c in Constraint
+                  if all(env.state_of(c) != ENFORCED for _, env in envelopes)]
+declared_only = [LABELS[c] for c in Constraint
+                 if any(env.state_of(c) == DECLARED for _, env in envelopes)
+                 and all(env.state_of(c) != ENFORCED for _, env in envelopes)]
+
+never_list = ", ".join(never_enforced)
+declared_list = ", ".join(declared_only)
+print()
+print(f"Enforced by no network: {never_list}")
+print(f"Declared somewhere but enforced nowhere: {declared_list}")

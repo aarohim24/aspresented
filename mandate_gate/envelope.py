@@ -38,16 +38,32 @@ class Constraint(str, Enum):
         return self.value
 
 
-#: Verified against the live Razorpay orders API on 2026-08-22 -- the token
-#: object is a strict allowlist of four fields, and seven attempts to express
-#: anything else were rejected by name. See evidence/schema-findings.json.
+#: Constraints that no **network** enforces on a merchant's behalf.
+#:
+#: Note the word. AP2 *expresses* a total cap (`payment.budget`) and a charge
+#: count (`agent_recurrence.max_occurrences`) by name -- but AP2 is a credential
+#: format, not a rail, and its specification does not say who checks the claims
+#: it carries. A signed constraint is a claim, not a control. So these appear in
+#: AP2's `policy` tier, never its `rail` tier, and this set remains accurate.
+#:
+#: The set has been narrowed twice by evidence. It once also claimed RATE_LIMIT,
+#: SCOPE and INTENT_BINDING; Razorpay's fixed `frequency` buckets impose a
+#: cadence, a card token can carry an MCC scope, and AP2's `cnf` binds a key. A
+#: narrow true claim beats a broad plausible one.
+#:
+#: Grounding: verified against the live Razorpay orders API on 2026-08-22 --
+#: the token object is a strict allowlist of four fields and seven attempts to
+#: express anything else were rejected by name (evidence/schema-findings.json).
+#: AP2 mapped against its published schemas (evidence/open_*_mandate.json).
 UNIVERSALLY_ABSENT = frozenset({
     Constraint.CUMULATIVE_MAX,
     Constraint.MAX_CHARGES,
-    Constraint.RATE_LIMIT,
-    Constraint.SCOPE,
-    Constraint.INTENT_BINDING,
 })
+
+#: How a constraint stands for one mandate.
+ENFORCED = "enforced"   # the network guarantees it unaided
+DECLARED = "declared"   # written down, enforced only by this layer
+ABSENT = "absent"       # nothing says it at all
 
 
 @dataclass(frozen=True)
@@ -173,6 +189,19 @@ class MandateEnvelope:
                                      or self.policy.requires_intent_binding),
         )
 
+    def state_of(self, constraint: Constraint) -> str:
+        """
+        ENFORCED, DECLARED or ABSENT for this mandate.
+
+        The distinction the project turns on: a constraint written into a
+        credential is not the same as one a network will refuse to breach.
+        """
+        if constraint in self.rail.declared():
+            return ENFORCED
+        if constraint in self.policy.declared():
+            return DECLARED
+        return ABSENT
+
     @property
     def unenforced_by_rail(self) -> frozenset[Constraint]:
         """
@@ -184,11 +213,11 @@ class MandateEnvelope:
 
 def coverage_matrix(envelopes: Iterable[MandateEnvelope]) -> dict:
     """
-    Build the rail-by-constraint table. The README table is generated from
-    this rather than typed by hand, so it cannot drift from the code.
+    Build the source-by-constraint table, one of ENFORCED / DECLARED / ABSENT
+    per cell. The README table is generated from this rather than typed by
+    hand, so it cannot drift from the code.
     """
     rows = {}
     for env in envelopes:
-        declared = env.rail.declared()
-        rows[env.source] = {str(c): (c in declared) for c in Constraint}
+        rows[env.source] = {str(c): env.state_of(c) for c in Constraint}
     return rows

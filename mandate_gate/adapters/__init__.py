@@ -6,7 +6,7 @@ An adapter does one job: turn a rail's native mandate representation into a
 policy and make no decisions.
 
 Only one adapter is wired to a live API. The others are mappers verified
-against recorded fixtures. `WIRED` on each adapter says which, and the README
+against published schemas or recorded fixtures. `WIRED` on each adapter says which, and the README
 repeats it, because blurring that line is the one thing that would make the
 measured numbers dishonest.
 """

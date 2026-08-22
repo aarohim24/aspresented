@@ -39,6 +39,7 @@ td{padding:9px 12px;border-bottom:1px solid var(--line);color:var(--dim);vertica
 tr:last-child td{border-bottom:0}
 .yes{color:var(--ok);font-weight:600}
 .no{color:var(--bad);font-weight:700}
+.dim{color:var(--warn);font-weight:600}
 .gapRow td{background:var(--bad-bg)}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
 .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1px;background:var(--line);
@@ -147,23 +148,27 @@ function renderCoverage(cov) {
     head.appendChild(th);
   });
   const body = t.createTBody();
+  const CELL = {enforced: ["yes", "enforced"], declared: ["dim", "declared"],
+                absent: ["no", "—"]};
   cov.rows.forEach(row => {
     const tr = body.insertRow();
-    if (row.absent_everywhere) tr.className = "gapRow";
+    if (row.never_enforced) tr.className = "gapRow";
     tr.insertCell().textContent = row.label;
     row.cells.forEach(v => {
       const td = tr.insertCell();
-      td.className = v ? "yes" : "no";
-      td.textContent = v ? "yes" : "no";
+      const [cls, txt] = CELL[v] || ["no", "—"];
+      td.className = cls;
+      td.textContent = txt;
     });
   });
-  const gaps = cov.rows.filter(r => r.absent_everywhere).map(r => r.label);
+  const gaps = cov.rows.filter(r => r.never_enforced).map(r => r.label);
   document.getElementById("coverageNote").innerHTML =
-    "Highlighted rows are expressed by <strong>no rail at all</strong>: " +
-    gaps.join(", ") + ". Note also that each rail lacks something another has " +
-    "— Razorpay gives a ceiling but no intent binding, AP2 binds intent but " +
-    "sets no ceiling. A merchant taking agent traffic from more than one source " +
-    "cannot rely on any of them.";
+    "Highlighted rows are enforced by <strong>no network at all</strong>: " +
+    gaps.join(", ") + ". Read the difference between the two words carefully. " +
+    "AP2 <em>declares</em> a total cap and a charge count by name — but AP2 is a " +
+    "credential format, not a rail, and nothing checks the claims it carries. " +
+    "<strong>A signed constraint is a claim, not a control.</strong> Razorpay, " +
+    "meanwhile, has no field to write them in at all.";
 }
 
 function renderHarness(h) {

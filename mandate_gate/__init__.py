@@ -10,14 +10,15 @@ authorised when a charge is later disputed.
 
 from .adjudicate import (AUTHORISED, UNAUTHORISED, UNPROVABLE, Adjudicator)
 from .charge import ChargeRequest, Decision, Intent, Refusal
-from .envelope import (Constraint, Limits, MandateEnvelope, Scope, Window,
-                       coverage_matrix)
+from .envelope import (ABSENT, DECLARED, ENFORCED, Constraint, Limits,
+                       MandateEnvelope, Scope, Window, coverage_matrix)
 from .gate import Gate
 from .ledger import BrokenChain, Ledger
 from .rail import RailSimulator
 
 __all__ = [
     "Constraint", "Limits", "MandateEnvelope", "Scope", "Window",
+    "ENFORCED", "DECLARED", "ABSENT",
     "coverage_matrix", "Ledger", "BrokenChain", "Gate", "RailSimulator",
     "ChargeRequest", "Decision", "Intent", "Refusal",
     "Adjudicator", "AUTHORISED", "UNAUTHORISED", "UNPROVABLE",
