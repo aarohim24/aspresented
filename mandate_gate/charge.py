@@ -25,6 +25,26 @@ def _canonical(payload: dict) -> bytes:
                       default=str).encode()
 
 
+#: The fields an intent's signature covers. Anything added to `Intent` without
+#: being added here is unsigned and therefore forgeable, so the list is
+#: explicit rather than derived from the dataclass.
+INTENT_SIGNED_FIELDS = ("intent_id", "mandate_id", "max_amount",
+                        "expires_at", "merchant", "category")
+
+
+def intent_signature(fields: dict, secret: bytes) -> str:
+    """
+    Derive an intent signature from a mapping of the signed fields.
+
+    Both the signer and the dispute-time verifier call this. They used to build
+    the payload separately, which meant a new signed field could be added in
+    one place and silently ignored in the other -- leaving a verifier that
+    validates a subset of what was signed.
+    """
+    payload = {k: fields.get(k) for k in INTENT_SIGNED_FIELDS}
+    return hmac.new(secret, _canonical(payload), hashlib.sha256).hexdigest()
+
+
 @dataclass(frozen=True)
 class Intent:
     """What the principal asked for. The thing a charge must be justified by."""
@@ -38,26 +58,17 @@ class Intent:
     signature: str = ""
 
     def _payload(self) -> dict:
-        return {
-            "intent_id": self.intent_id,
-            "mandate_id": self.mandate_id,
-            "max_amount": self.max_amount,
-            "expires_at": self.expires_at,
-            "merchant": self.merchant,
-            "category": self.category,
-        }
+        return {k: getattr(self, k) for k in INTENT_SIGNED_FIELDS}
 
     def signed(self, secret: bytes) -> "Intent":
-        digest = hmac.new(secret, _canonical(self._payload()),
-                          hashlib.sha256).hexdigest()
-        return replace(self, signature=digest)
+        return replace(self,
+                       signature=intent_signature(self._payload(), secret))
 
     def signature_valid(self, secret: bytes) -> bool:
         if not self.signature:
             return False
-        expected = hmac.new(secret, _canonical(self._payload()),
-                            hashlib.sha256).hexdigest()
-        return hmac.compare_digest(expected, self.signature)
+        return hmac.compare_digest(
+            intent_signature(self._payload(), secret), self.signature)
 
 
 @dataclass(frozen=True)

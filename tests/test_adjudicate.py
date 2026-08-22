@@ -145,6 +145,56 @@ class TestTamperResistance(AdjTestCase):
         self.assertEqual(impostor.adjudicate("k1").verdict, UNPROVABLE)
 
 
+class TestSignedShapeIsSharedWithTheSigner(AdjTestCase):
+    def setUp(self):
+        self.build()
+
+    def test_verification_covers_every_signed_field(self):
+        """
+        The signer and the verifier build the signed payload through one
+        function. They used to build it separately, so a field added to Intent
+        could be signed and then silently ignored at dispute time.
+        """
+        from mandate_gate.charge import INTENT_SIGNED_FIELDS, Intent
+        signed = Intent(intent_id="i", mandate_id="m", max_amount=1,
+                        expires_at=2).signed(SECRET)
+        for name in INTENT_SIGNED_FIELDS:
+            self.assertTrue(hasattr(signed, name), name)
+
+
+class TestMandateScoping(AdjTestCase):
+    def setUp(self):
+        self.build()
+
+    def test_the_same_key_on_two_mandates_is_disambiguated(self):
+        """
+        Idempotency keys are unique per mandate, not globally. A shared ledger
+        can hold the same key twice, and the first match is not necessarily the
+        charge under dispute.
+        """
+        env_b = MandateEnvelope(
+            mandate_id="m2", source="razorpay-upi-autopay", subject="c2",
+            rail=RAIL, policy=Limits())
+        gate_b = Gate(env_b, self.ledger, RailSimulator(limits=RAIL), SECRET,
+                      clock=lambda: self.clock["now"])
+
+        self.charge("shared-key", amount=100)                      # on m1
+        gate_b.authorize(ChargeRequest(mandate_id="m2", amount=400,
+                                       idempotency_key="shared-key",
+                                       merchant="shop-b"))
+
+        first = self.adj.adjudicate("shared-key")
+        second = self.adj.adjudicate("shared-key", mandate_id="m2")
+        self.assertEqual(first.mandate_id, "m1")
+        self.assertEqual(second.mandate_id, "m2")
+        self.assertEqual(second.charge["amount"], 400)
+
+    def test_unknown_charge_keeps_the_mandate_it_was_asked_about(self):
+        result = self.adj.adjudicate("nope", mandate_id="m9")
+        self.assertEqual(result.mandate_id, "m9")
+        self.assertEqual(result.verdict, UNPROVABLE)
+
+
 class TestDisputable(AdjTestCase):
     def test_lists_only_settled_charges(self):
         gate = self.build(scope=Scope(merchants=frozenset({"shop-a"})))

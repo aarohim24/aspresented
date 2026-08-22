@@ -27,36 +27,29 @@ every agent purchase on today's rails is in.
 
 from __future__ import annotations
 
-import hashlib
 import hmac
-import json
 from dataclasses import dataclass, field
+
+from .charge import INTENT_SIGNED_FIELDS, intent_signature
 
 AUTHORISED = "AUTHORISED"
 UNAUTHORISED = "UNAUTHORISED"
 UNPROVABLE = "UNPROVABLE"
 
 
-def _canonical(payload: dict) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"),
-                      default=str).encode()
-
-
 def _verify_intent_record(record: dict, secret: bytes) -> bool:
-    """Re-derive the signature from the recorded fields alone."""
+    """
+    Re-derive the signature from the recorded fields alone.
+
+    Uses the same `intent_signature` the signer used. Building the payload
+    separately here -- as an earlier version did -- meant a signed field could
+    be added to `Intent` and silently dropped from verification.
+    """
     signature = record.get("signature")
     if not signature:
         return False
-    payload = {
-        "intent_id": record.get("intent_id"),
-        "mandate_id": record.get("mandate_id"),
-        "max_amount": record.get("max_amount"),
-        "expires_at": record.get("expires_at"),
-        "merchant": record.get("merchant"),
-        "category": record.get("category"),
-    }
-    expected = hmac.new(secret, _canonical(payload), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature)
+    fields = {k: record.get(k) for k in INTENT_SIGNED_FIELDS}
+    return hmac.compare_digest(intent_signature(fields, secret), signature)
 
 
 @dataclass
@@ -133,7 +126,13 @@ class Adjudicator:
         return out
 
     # --------------------------------------------------------- adjudicate
-    def adjudicate(self, charge_ref: str) -> Adjudication:
+    def adjudicate(self, charge_ref: str,
+                   mandate_id: str | None = None) -> Adjudication:
+        """
+        `mandate_id` disambiguates. Idempotency keys are unique per mandate,
+        not globally, so a shared ledger can hold the same key twice -- and
+        without this the first match wins, which may be the wrong charge.
+        """
         entries = list(self.ledger.entries())
 
         chain_ok, chain_error = True, None
@@ -148,13 +147,16 @@ class Adjudicator:
             p = entry.payload
             if (entry.kind == "decision"
                     and p.get("idempotency_key") == charge_ref
+                    and (mandate_id is None
+                         or p.get("mandate_id") == mandate_id)
                     and not p.get("replayed")):
                 target, target_index = p, i
                 break
 
         if target is None:
             return Adjudication(
-                charge_ref=charge_ref, mandate_id="", verdict=UNPROVABLE,
+                charge_ref=charge_ref, mandate_id=mandate_id or "",
+                verdict=UNPROVABLE,
                 reasons=["No record of this charge in the ledger."],
                 chain_ok=chain_ok, chain_error=chain_error)
 
