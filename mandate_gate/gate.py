@@ -33,6 +33,7 @@ Two design choices worth defending:
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 
 from .charge import ChargeRequest, Decision, Intent, Refusal
@@ -42,8 +43,15 @@ from .rail import RailSimulator
 
 
 def _fingerprint(intent_id, merchant, amount: int) -> str:
-    """Identity of a logical purchase, independent of its idempotency key."""
-    return f"{intent_id or ''}|{merchant or ''}|{amount}"
+    """
+    Identity of a logical purchase, independent of its idempotency key.
+
+    Hashed rather than delimiter-joined: a merchant name containing the
+    delimiter could otherwise collide with a different purchase and be refused
+    as a duplicate.
+    """
+    parts = repr((intent_id, merchant, amount)).encode()
+    return hashlib.sha256(parts).hexdigest()[:32]
 
 
 @dataclass
@@ -64,6 +72,11 @@ class Gate:
                  rail: RailSimulator, intent_secret: bytes,
                  intents: dict | None = None, duplicate_window: int = 300,
                  clock=None, max_clock_skew: int = 300):
+        if not intent_secret:
+            raise ValueError(
+                "intent_secret is required -- an unsigned intent proves "
+                "nothing, so silently accepting an empty key would make the "
+                "whole evidence chain decorative")
         self.envelope = envelope
         self.ledger = ledger
         self.rail = rail
@@ -175,24 +188,29 @@ class Gate:
                 f"{st.charge_count} of {limits.max_charges} charges used",
                 "No charges remain. Obtain a fresh mandate."))
 
-        if limits.rate_limit is not None:
-            window = limits.rate_limit
+        # Every window, not the collapsed one. 10/day and 5/hour each permit
+        # bursts the other forbids, so satisfying the tighter-by-rate window is
+        # not the same as satisfying both.
+        for window in self.envelope.rate_windows:
             since = now - window.seconds
-            recent = sum(1 for t in st.charge_times if t > since)
-            if recent + 1 > window.max_charges:
+            in_window = [t for t in st.charge_times if t > since]
+            if len(in_window) + 1 > window.max_charges:
                 out.append(Refusal(
-                    "RATE_EXCEEDED", "at",
-                    f"{recent} charges in the last {window.seconds}s, "
+                    "RATE_EXCEEDED", "mandate_id",
+                    f"{len(in_window)} charges in the last {window.seconds}s, "
                     f"limit {window.max_charges}",
-                    f"Retry after {min(t for t in st.charge_times if t > since) + window.seconds}."))
+                    f"Retry after {min(in_window) + window.seconds}."))
+                break            # one refusal per constraint class is enough
 
-        if limits.scope is not None and not limits.scope.is_unrestricted:
-            if not limits.scope.permits(req.merchant, req.category):
+        # Every scope. A charge must satisfy all of them, not the union.
+        for scope in self.envelope.scopes:
+            if not scope.permits(req.merchant, req.category):
                 out.append(Refusal(
                     "SCOPE_VIOLATION", "merchant",
                     f"merchant={req.merchant} category={req.category} "
                     f"is outside the authorised scope",
                     "Charge only within the authorised merchants/categories."))
+                break
 
         out.extend(self._check_intent(req, limits, now))
         return out
