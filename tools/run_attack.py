@@ -31,6 +31,7 @@ any adversarial run can tell you.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
 import sys
@@ -39,7 +40,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from mandate_gate.attack import Fuzzer, run                       # noqa: E402
+from mandate_gate.attack import (Fuzzer, ModelAttacker,           # noqa: E402
+                                 ReplayAttacker, run)
+from mandate_gate.attack.model import (DEFAULT_MODEL,              # noqa: E402
+                                       GROQ_BASE_URL)
 from mandate_gate.charge import REFUSAL_CODES, Intent             # noqa: E402
 from mandate_gate.envelope import (Limits, MandateEnvelope, Scope,  # noqa: E402
                                    Window)
@@ -69,10 +73,29 @@ def main() -> int:
     ap.add_argument("--budget", type=int, default=40,
                     help="maximum charge attempts")
     ap.add_argument("--seed", type=int, default=3)
-    ap.add_argument("--tempos", type=int, nargs="+",
-                    default=[0, 600, 1200, 4000, 86_400],
-                    help="seconds between attempts; each is a separate run")
+    ap.add_argument("--tempos", type=int, nargs="+", default=None,
+                    help="seconds between attempts; each is a separate run. "
+                         "Defaults to a five-tempo sweep for the fuzzer and a "
+                         "single tempo for a model, which pays per call.")
+    ap.add_argument("--attacker", choices=("fuzzer", "model", "replay"),
+                    default="fuzzer",
+                    help="fuzzer needs nothing; model needs GROQ_API_KEY; "
+                         "replay re-runs a committed transcript")
+    ap.add_argument("--base-url", default=None,
+                    help="OpenAI-compatible endpoint (default: Groq)")
+    ap.add_argument("--model", default=None, help="model id")
+    ap.add_argument("--transcript", default=str(ROOT / "evidence" /
+                                                "model-attack-transcript.json"),
+                    help="where a model run is recorded and replay reads from")
     args = ap.parse_args()
+
+    # The fuzzer is free, so it sweeps. A model costs a call per attempt and
+    # Groq's free tier allows ~1000 a day: a five-tempo sweep at budget 40
+    # would spend a fifth of that in one run. Default it to one tempo and make
+    # the projection visible rather than surprising.
+    if args.tempos is None:
+        args.tempos = ([1200] if args.attacker in ("model", "replay")
+                       else [0, 600, 1200, 4000, 86_400])
 
     envelope = MandateEnvelope(
         mandate_id="token_attack", source="razorpay-upi-autopay",
@@ -87,26 +110,62 @@ def main() -> int:
     print("\n" + "=" * 70)
     print("  ADVERSARIAL SWEEP")
     print("=" * 70)
-    print("\n  attacker         fuzzer (deterministic, no credentials)")
+    label = {"fuzzer": "fuzzer (deterministic, no credentials)",
+             "model": "model (OpenAI-compatible endpoint)",
+             "replay": "replay of a committed model transcript"}[args.attacker]
+    print(f"\n  attacker         {label}")
+    if args.attacker == "model" and not (os.environ.get("GROQ_API_KEY")
+                                         or os.environ.get("OPENAI_API_KEY")):
+        print("\n  No GROQ_API_KEY or OPENAI_API_KEY in the environment.")
+        print("  The model attacker will propose nothing, so this run would")
+        print("  report zeros that mean 'not attempted', not 'nothing found'.")
+        print("  Set a key, or use --attacker fuzzer / --attacker replay.\n")
+        return 2
     print(f"  budget           {args.budget} attempts per tempo")
     print(f"  tempos           {', '.join(str(t) + 's' for t in args.tempos)}")
     print("  what it sees     the mandate's own terms, plus every refusal")
-    print("  what it cannot   the merchant's policy, and this repository\n")
+    print("  what it cannot   the merchant's policy, and this repository")
+    if args.attacker == "model":
+        calls = args.budget * len(args.tempos)
+        print(f"  projected calls  up to {calls} "
+              f"({args.budget} x {len(args.tempos)} tempo(s))")
+    print()
 
     cap = POLICY.cumulative_max
     print(f"  {'tempo':>8}  {'settled':>7}  {'extracted':>11}  "
           f"{'of cap':>7}  codes reached")
     print("  " + "-" * 66)
 
+    def make_attacker():
+        if args.attacker == "fuzzer":
+            return Fuzzer("token_attack", random.Random(args.seed),
+                          ceiling_hint=CEILING)
+        if args.attacker == "model":
+            kwargs = {}
+            if args.base_url:
+                kwargs["base_url"] = args.base_url
+            if args.model:
+                kwargs["model"] = args.model
+            return ModelAttacker(mandate_id="token_attack", **kwargs)
+        with open(args.transcript) as fh:
+            return ReplayAttacker(mandate_id="token_attack",
+                                  transcript=json.load(fh)["calls"])
+
     all_violations, all_codes, best = [], set(), 0
+    total_attempts = 0
+    recorded: dict = {}
     for tempo in args.tempos:
+        attacker = make_attacker()
         result = run(
-            envelope,
-            Fuzzer("token_attack", random.Random(args.seed),
-                   ceiling_hint=CEILING),
+            envelope, attacker,
             secret=SECRET, intents=intents, budget=args.budget,
             start_time=T0, seconds_per_attempt=tempo)
+        if args.attacker == "model":
+            # Every tempo, not just the first: a finding at one tempo that is
+            # not recorded is a finding nobody else can reproduce.
+            recorded[str(tempo)] = attacker.transcript()
 
+        total_attempts += result.attempts
         share = result.extracted / cap if cap else 0
         best = max(best, share)
         all_codes |= set(result.coverage)
@@ -133,14 +192,54 @@ def main() -> int:
     print("  Getting close is expected -- a mandate is meant to be spent. The")
     print("  question is only whether anything crossed the line.")
 
+    if recorded:
+        # Model runs have no seed, so an unrecorded finding is unverifiable.
+        Path(args.transcript).parent.mkdir(parents=True, exist_ok=True)
+        flat = [c for calls in recorded.values() for c in calls]
+        with open(args.transcript, "w") as fh:
+            json.dump({"model": args.model or DEFAULT_MODEL,
+                       "base_url": args.base_url or GROQ_BASE_URL,
+                       "tempos": {k: v for k, v in recorded.items()},
+                       "calls": flat}, fh, indent=1)
+        usable = sum(1 for c in flat if c.get("parsed"))
+        print(f"\n  transcript written to {args.transcript}")
+        print(f"  {usable}/{len(flat)} exchanges parsed into a charge. Commit "
+              f"it; --attacker replay then reproduces this run with no "
+              f"credentials.")
+        errors = [c["error"] for c in flat if c.get("error")]
+        if errors:
+            print(f"  {len(errors)} call(s) failed, first: {errors[0]}")
+
     print("\n  " + "=" * 66)
+    if total_attempts == 0:
+        # A run where the attacker never proposed anything must not read as a
+        # pass. Every model call failing looks identical to a clean sweep if
+        # only violations are reported, and that would be the most misleading
+        # output this tool could produce.
+        print("  INCONCLUSIVE -- the attacker made no attempts")
+        print("  " + "-" * 66)
+        print("  Nothing was tested, so nothing was shown. This is not a")
+        print("  passing result and must never be reported as one.")
+        if recorded:
+            errs = [c["error"] for calls in recorded.values() for c in calls
+                    if c.get("error")]
+            if errs:
+                print(f"\n  {len(errs)} model call(s) failed. First:")
+                print(f"    {errs[0]}")
+                print("  A 401 or 403 means the key was rejected; 429 means the")
+                print("  free tier's rate limit. Neither is a finding.")
+        print()
+        return 2
+
     if not all_violations:
         print("  NO INVARIANT VIOLATIONS AT ANY TEMPO")
         print("  " + "-" * 66)
         print("  The gate held. That is not a proof of correctness -- it is one")
-        print("  attacker, at four tempos, failing to find a hole, which is the")
-        print("  most an adversarial run can establish. A model-driven attacker")
-        print("  that never read these checks is the next thing to try.")
+        print(f"  attacker, over {total_attempts} attempts at "
+              f"{len(args.tempos)} tempo(s), failing to find a hole -- which "
+              f"is the")
+        print("  most an adversarial run can establish. Results from different")
+        print("  attackers are reported separately and never merged.")
     else:
         print(f"  {len(all_violations)} INVARIANT VIOLATION(S) -- these are defects")
         print("  " + "-" * 66)
