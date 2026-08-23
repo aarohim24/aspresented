@@ -3,239 +3,522 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mandate Gate</title>
+<title>as-presented</title>
 <style>
+/* Spacing scale taken from Razorpay's Blade design system, and the mono stack
+   is Blade's code family. System faces rather than a webfont, so the console
+   works with no network -- a demo should not depend on venue wifi. The palette
+   is deliberately not Razorpay's: borrowing structure is homework, borrowing
+   brand colour would be impersonation. */
 :root{
-  --bg:#f4f6f9; --panel:#fff; --ink:#0d141d; --dim:#5a6675; --faint:#8b96a5;
-  --line:#d5dce5; --accent:#1b3fd0; --accent-bg:#e6ebfb;
-  --ok:#0c6a55; --ok-bg:#dceee9; --bad:#a3282f; --bad-bg:#f7e2e3;
-  --warn:#8f5400; --warn-bg:#f8ebd6;
-  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --s1:2px; --s2:4px; --s3:8px; --s4:12px; --s5:16px; --s6:20px;
+  --s7:24px; --s8:32px; --s9:40px; --s10:48px; --s11:56px;
+
+  --paper:#FBFBFD; --surface:#FFFFFF; --sunk:#F3F5F8;
+  --ink:#0B1017; --dim:#4E5866; --faint:#8A93A1; --line:#E2E6EC;
+  --accent:#2B4BF2; --accent-bg:#ECEFFE;
+  --ok:#0B6E56; --ok-bg:#E2F1EC;
+  --warn:#96590A; --warn-bg:#FAEEDC;
+  --bad:#B02A32; --bad-bg:#FAE7E8;
+
+  --sans:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,Menlo,"SF Mono",Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){:root{
-  --bg:#0a1017; --panel:#111a24; --ink:#e4e9f0; --dim:#a1adbd; --faint:#717d8b;
-  --line:#222e3d; --accent:#84a2ff; --accent-bg:#18223c;
-  --ok:#4ec7a5; --ok-bg:#0f3129; --bad:#ee7b81; --bad-bg:#33191b;
-  --warn:#e5a94d; --warn-bg:#32250e;
+  --paper:#07090D; --surface:#0E131B; --sunk:#121822;
+  --ink:#E7EBF2; --dim:#9BA6B6; --faint:#6B7585; --line:#1E2634;
+  --accent:#8FA6FF; --accent-bg:#151E36;
+  --ok:#45C79F; --ok-bg:#0D2A23;
+  --warn:#E3A94A; --warn-bg:#2C2110;
+  --bad:#F0787E; --bad-bg:#2E1417;
 }}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 var(--sans)}
-.wrap{max-width:1080px;margin:0 auto;padding:44px 24px 100px;display:flex;flex-direction:column;gap:40px}
-h1{font-size:1.7rem;margin:0;letter-spacing:-.02em}
-h2{font-size:1.05rem;margin:0;letter-spacing:-.01em}
-p{margin:0;color:var(--dim);max-width:70ch}
-.lede{font-size:1.02rem}
-.eyebrow{font-size:.68rem;text-transform:uppercase;letter-spacing:.14em;color:var(--faint);font-weight:650}
-header{border-bottom:2px solid var(--ink);padding-bottom:22px;display:flex;flex-direction:column;gap:12px}
-section{display:flex;flex-direction:column;gap:16px}
-.head{display:flex;flex-direction:column;gap:5px;border-top:1px solid var(--line);padding-top:14px}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:20px 22px}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:15px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+
+/* ---------------------------------------------------------------- chrome */
+nav{position:sticky;top:0;z-index:10;
+  background:color-mix(in srgb,var(--paper) 88%,transparent);
+  backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.navin{max-width:1080px;margin:0 auto;padding:0 var(--s7);display:flex;
+  align-items:center;gap:var(--s7);height:56px;overflow-x:auto}
+.brand{font-family:var(--mono);font-weight:600;font-size:.86rem;
+  letter-spacing:-.01em;white-space:nowrap}
+.brand em{font-style:normal;color:var(--accent)}
+nav a{color:var(--dim);text-decoration:none;font-size:.8rem;white-space:nowrap;
+  padding:var(--s2) 0;border-bottom:2px solid transparent}
+nav a:hover,nav a:focus-visible{color:var(--ink)}
+nav a.here{color:var(--ink);border-bottom-color:var(--accent)}
+
+main{max-width:1080px;margin:0 auto;padding:var(--s9) var(--s7) var(--s11)}
+section{margin-bottom:var(--s11);scroll-margin-top:var(--s10)}
+h1{font-size:clamp(1.9rem,4.2vw,2.7rem);line-height:1.08;letter-spacing:-.028em;
+  font-weight:700;margin:0 0 var(--s5);max-width:22ch}
+h2{font-size:1.22rem;letter-spacing:-.016em;font-weight:650;margin:0}
+h3{font-size:.95rem;font-weight:650;margin:0 0 var(--s3)}
+p{margin:0 0 var(--s5);color:var(--dim);max-width:68ch}
+p:last-child{margin-bottom:0}
+strong{color:var(--ink);font-weight:620}
+code,.mono{font-family:var(--mono);font-size:.86em}
+.eyebrow{font-size:.66rem;text-transform:uppercase;letter-spacing:.14em;
+  color:var(--faint);font-weight:680}
+.head{border-top:1px solid var(--ink);padding-top:var(--s4);
+  margin-bottom:var(--s6);display:flex;flex-direction:column;gap:var(--s2)}
+.lede{font-size:1.05rem;color:var(--dim);max-width:62ch}
+
+/* ------------------------------------------------------------------ bits */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;
+  padding:var(--s6) var(--s7)}
 .scroll{overflow-x:auto}
-table{border-collapse:collapse;width:100%;font-size:.88rem;min-width:520px}
-th{text-align:left;font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);
-   padding:9px 12px;border-bottom:1px solid var(--ink);white-space:nowrap;font-weight:650}
-td{padding:9px 12px;border-bottom:1px solid var(--line);color:var(--dim);vertical-align:top}
-tr:last-child td{border-bottom:0}
-.yes{color:var(--ok);font-weight:600}
-.no{color:var(--bad);font-weight:700}
-.dim{color:var(--warn);font-weight:600}
-.gapRow td{background:var(--bad-bg)}
-.num{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
-.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1px;background:var(--line);
-         border:1px solid var(--line);border-radius:3px;overflow:hidden}
-.metric{background:var(--panel);padding:16px 18px;display:flex;flex-direction:column;gap:3px}
-.metric .v{font-family:var(--mono);font-size:1.5rem;font-weight:600;letter-spacing:-.02em}
-.metric .k{font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);font-weight:650}
-.metric .n{font-size:.78rem;color:var(--faint)}
-.metric.lead .v{color:var(--ok)}
-.note{font-size:.86rem;color:var(--dim);border-left:2px solid var(--line);padding-left:14px;max-width:70ch}
-.pill{display:inline-block;font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.09em;
-      padding:3px 8px;border-radius:2px}
+.pill{display:inline-block;font-family:var(--mono);font-size:.68rem;
+  font-weight:600;letter-spacing:.02em;padding:var(--s1) var(--s3);
+  border-radius:3px;white-space:nowrap}
 .p-ok{background:var(--ok-bg);color:var(--ok)}
-.p-bad{background:var(--bad-bg);color:var(--bad)}
 .p-warn{background:var(--warn-bg);color:var(--warn)}
+.p-bad{background:var(--bad-bg);color:var(--bad)}
 .p-acc{background:var(--accent-bg);color:var(--accent)}
-.cols{display:grid;grid-template-columns:minmax(280px,1fr) minmax(320px,1.25fr);gap:20px}
-@media (max-width:840px){.cols{grid-template-columns:1fr}}
-.chargeList{display:flex;flex-direction:column;gap:8px}
-button.charge{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:5px;padding:13px 15px;
-  border:1px solid var(--line);border-radius:3px;background:var(--panel);transition:border-color .12s}
-button.charge:hover,button.charge:focus-visible{border-color:var(--accent)}
-button.charge[aria-selected=true]{border-color:var(--accent);background:var(--accent-bg)}
-button.charge .top{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
-button.charge .ref{font-family:var(--mono);font-size:.84rem;color:var(--ink);font-weight:600}
-button.charge .meta{font-size:.76rem;color:var(--faint)}
-.verdict{display:flex;flex-direction:column;gap:14px}
-.verdict .big{font-family:var(--mono);font-size:1.35rem;font-weight:700;letter-spacing:-.01em}
+.p-mute{background:var(--sunk);color:var(--faint)}
+.note{border-left:2px solid var(--line);padding-left:var(--s5);
+  font-size:.9rem;color:var(--dim);max-width:66ch}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+  gap:var(--s6)}
+
+table{border-collapse:collapse;width:100%;font-size:.87rem;min-width:600px}
+th{text-align:left;font-size:.64rem;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--faint);font-weight:680;padding:var(--s3) var(--s4);
+  border-bottom:1px solid var(--ink);white-space:nowrap}
+td{padding:var(--s3) var(--s4);border-bottom:1px solid var(--line);
+  color:var(--dim);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+tr.gap td{background:var(--bad-bg)}
+tr.gap td:first-child{color:var(--ink);font-weight:600}
+
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;
+  overflow:hidden}
+.metric{background:var(--surface);padding:var(--s5) var(--s6);
+  display:flex;flex-direction:column;gap:var(--s1)}
+.metric .k{font-size:.64rem;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--faint);font-weight:680}
+.metric .v{font-family:var(--mono);font-size:1.5rem;font-weight:600;
+  letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.metric .n{font-size:.76rem;color:var(--faint)}
+.metric.lead .v{color:var(--ok)}
+
+/* ----------------------------------------------------------------- hero */
+.claim{font-family:var(--mono);background:var(--surface);
+  border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:4px;padding:var(--s5) var(--s6);font-size:.92rem;
+  color:var(--dim);margin-bottom:var(--s7);overflow-x:auto}
+.claim b{color:var(--accent);font-weight:600}
+
+/* ----------------------------------------------------------- delegation */
+.chain{display:flex;flex-direction:column}
+.link{display:grid;grid-template-columns:var(--s6) 1fr;gap:var(--s5);
+  padding:var(--s5) 0;border-top:1px solid var(--line)}
+.link:first-child{border-top:0;padding-top:0}
+.rail{display:flex;flex-direction:column;align-items:center}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--accent);
+  flex:none;margin-top:6px}
+.wire{flex:1;width:1px;background:var(--line);margin-top:var(--s2)}
+.who{font-weight:620;font-size:.92rem;margin-bottom:var(--s3)}
+.adds{display:flex;flex-wrap:wrap;gap:var(--s2);margin-bottom:var(--s3)}
+.folded{font-family:var(--mono);font-size:.76rem;color:var(--faint);
+  line-height:1.5}
+.offline{font-size:.78rem;color:var(--accent);margin-top:var(--s2)}
+.probes{display:flex;flex-direction:column;gap:var(--s4)}
+.probe{display:flex;flex-wrap:wrap;gap:var(--s3);align-items:baseline;
+  font-size:.86rem}
+.probe .amt{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  color:var(--ink);font-weight:600}
+.probe .why{color:var(--faint);font-size:.79rem;flex-basis:100%}
+.cheat{padding:var(--s4) 0;border-top:1px solid var(--line)}
+.cheat:first-child{border-top:0;padding-top:0}
+.cheat .what{display:flex;gap:var(--s3);align-items:baseline;
+  margin-bottom:var(--s3);font-size:.88rem}
+.cheat .res{display:flex;gap:var(--s3);align-items:center;
+  margin-bottom:var(--s2);flex-wrap:wrap}
+.cheat .why{color:var(--faint);font-size:.79rem}
+
+/* ---------------------------------------------------------------- buyer */
+.inject{background:var(--bad-bg);
+  border:1px solid color-mix(in srgb,var(--bad) 26%,transparent);
+  border-radius:4px;padding:var(--s5) var(--s6);font-size:.88rem;
+  color:var(--dim);margin-bottom:var(--s6)}
+.inject b{color:var(--bad);font-weight:620}
+.trace{display:flex;flex-direction:column;gap:var(--s2)}
+.tr{display:grid;grid-template-columns:36px 1fr auto;gap:var(--s3);
+  align-items:baseline;padding:var(--s3) var(--s4);border-radius:4px;
+  background:var(--sunk);font-family:var(--mono);font-size:.79rem}
+.tr.no{background:var(--bad-bg)}
+.tr .v{font-weight:700}
+.tr.yes .v{color:var(--ok)}
+.tr.no .v{color:var(--bad)}
+.tr .say,.tr .fix{grid-column:2/-1;font-family:var(--sans);font-size:.79rem}
+.tr .say{color:var(--faint);font-style:italic}
+.tr .fix{color:var(--accent)}
+
+/* -------------------------------------------------------------- console */
+.cols{display:grid;grid-template-columns:minmax(250px,.85fr) minmax(320px,1.15fr);
+  gap:var(--s6);align-items:start}
+@media (max-width:860px){.cols{grid-template-columns:1fr}}
+.charges{display:flex;flex-direction:column;gap:var(--s3)}
+button.ch{all:unset;cursor:pointer;display:flex;flex-direction:column;
+  gap:var(--s2);padding:var(--s4) var(--s5);border:1px solid var(--line);
+  border-radius:5px;background:var(--surface);
+  transition:border-color .12s,background .12s}
+button.ch:hover{border-color:var(--accent)}
+button.ch[aria-selected=true]{border-color:var(--accent);background:var(--accent-bg)}
+button.ch .top{display:flex;justify-content:space-between;gap:var(--s4);
+  align-items:baseline}
+button.ch .ref{font-family:var(--mono);font-size:.83rem;font-weight:600;
+  color:var(--ink)}
+button.ch .amt{font-family:var(--mono);font-size:.83rem;color:var(--dim)}
+button.ch .meta{font-size:.74rem;color:var(--faint)}
+.verdict .big{font-family:var(--mono);font-size:1.35rem;font-weight:700;
+  letter-spacing:-.01em;margin:var(--s3) 0 var(--s4)}
 .v-AUTHORISED{color:var(--ok)}
 .v-UNAUTHORISED{color:var(--bad)}
 .v-UNPROVABLE{color:var(--warn)}
-.reasons{display:flex;flex-direction:column;gap:9px;margin:0;padding:0;list-style:none}
-.reasons li{font-size:.9rem;color:var(--dim);padding-left:15px;position:relative}
-.reasons li::before{content:"";position:absolute;left:0;top:.62em;width:6px;height:1px;background:var(--faint)}
-dl{display:grid;grid-template-columns:auto 1fr;gap:5px 16px;margin:0;font-size:.85rem}
-dt{color:var(--faint);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;font-weight:650;padding-top:2px}
+.reasons{list-style:none;padding:0;margin:var(--s5) 0;display:flex;
+  flex-direction:column;gap:var(--s3)}
+.reasons li{font-size:.88rem;color:var(--dim);padding-left:var(--s4);
+  position:relative}
+.reasons li::before{content:"";position:absolute;left:0;top:.65em;width:5px;
+  height:1px;background:var(--faint)}
+dl{display:grid;grid-template-columns:auto 1fr;gap:var(--s2) var(--s5);
+  margin:var(--s3) 0 var(--s5);font-size:.84rem}
+dt{color:var(--faint);font-size:.66rem;text-transform:uppercase;
+  letter-spacing:.08em;font-weight:680;padding-top:2px}
 dd{margin:0;font-family:var(--mono);color:var(--ink)}
-.empty{color:var(--faint);font-size:.9rem;font-style:italic}
-code{font-family:var(--mono);font-size:.86em;background:var(--accent-bg);color:var(--accent);padding:1px 5px;border-radius:2px}
-footer{border-top:1px solid var(--line);padding-top:18px;font-size:.8rem;color:var(--faint)}
+.empty{color:var(--faint);font-size:.88rem;font-style:italic}
+
+footer{border-top:1px solid var(--line);padding:var(--s6) var(--s7) var(--s9);
+  font-size:.78rem;color:var(--faint);max-width:1080px;margin:0 auto}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto} *{transition:none!important}}
 </style>
 </head>
 <body>
-<div class="wrap">
 
-<header>
-  <span class="eyebrow">Mandate Gate &middot; local console</span>
+<nav><div class="navin">
+  <span class="brand">as&#8209;<em>presented</em></span>
+  <a href="#finding">The finding</a>
+  <a href="#delegation">Delegation</a>
+  <a href="#buyer">The buyer</a>
+  <a href="#adversarial">Adversarial</a>
+  <a href="#dispute">Dispute</a>
+</div></nav>
+
+<main>
+
+<section id="top">
+  <span class="eyebrow">local console</span>
   <h1>A mandate says how much. It never says how many times.</h1>
-  <p class="lede">Everything below is computed at load from the real code &mdash; the table from the adapters, the scores from the harness, the verdicts from a hash-chained ledger built by running charges through the gate.</p>
-</header>
+  <div class="claim" id="claim">loading&hellip;</div>
+  <p class="lede">Everything on this page is computed from the code when the
+  server starts &mdash; the table from the adapters, the chain from real signed
+  authorities, the traces from charges that actually passed through the gate.
+  Nothing here is transcribed.</p>
+</section>
 
-<section>
-  <div class="head"><span class="eyebrow">The finding</span><h2>What each rail can actually express</h2></div>
-  <p>Verified against the live Razorpay test-mode API: the mandate token is a strict allowlist of four fields, and seven attempts to express anything else were rejected by name.</p>
+<section id="finding">
+  <div class="head"><span class="eyebrow">Verified against the live API</span>
+    <h2>What each rail can express, and what it enforces</h2></div>
+  <p>The token object is a strict allowlist of four fields; seven attempts to
+  express anything else were rejected by name. The two words in this table carry
+  the argument. <strong>Enforced</strong> means the network refuses to breach it.
+  <strong>Declared</strong> means it is written down and enforced by nothing
+  unless someone builds the check.</p>
   <div class="panel scroll"><table id="coverage"></table></div>
-  <p class="note" id="coverageNote"></p>
+  <p class="note" id="coverageNote" style="margin-top:var(--s5)"></p>
 </section>
 
-<section>
-  <div class="head"><span class="eyebrow">Measured</span><h2>Adversarial harness, held-out split</h2></div>
-  <div class="metrics" id="metrics"></div>
-  <p class="note" id="harnessNote"></p>
-  <div class="panel scroll"><table id="classes"></table></div>
-</section>
-
-<section>
-  <div class="head"><span class="eyebrow">Dispute console</span><h2>Was this charge authorised?</h2></div>
-  <p>Two mandates, identical but for one line of policy: one requires intent binding, the other does not. Adjudicate a charge from each.</p>
-  <div class="cols">
-    <div>
-      <span class="eyebrow">Settled charges</span>
-      <div class="chargeList" id="settled" style="margin-top:10px"></div>
-      <div style="margin-top:22px">
-        <span class="eyebrow">Refused by the gate</span>
-        <div class="chargeList" id="refused" style="margin-top:10px"></div>
+<section id="delegation">
+  <div class="head"><span class="eyebrow">Novel</span>
+    <h2>An agent hiring another agent, without handing over the wallet</h2></div>
+  <p>Every mandate examined here is a single flat grant. That was tolerable while
+  a person held it, and it stops being tolerable the moment agents subcontract
+  &mdash; which they already do. <strong>Today the only way to let a sub-agent
+  spend is to hand over the whole credential.</strong></p>
+  <div class="grid2">
+    <div class="panel">
+      <h3>The chain</h3>
+      <div class="chain" id="chain"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:var(--s6)">
+      <div class="panel">
+        <h3>What the last holder can spend</h3>
+        <div class="probes" id="probes"></div>
+      </div>
+      <div class="panel">
+        <h3>Three ways to try to widen it</h3>
+        <div id="cheats"></div>
       </div>
     </div>
-    <div class="panel" id="verdict">
-      <p class="empty">Pick a charge to adjudicate it.</p>
+  </div>
+  <p class="note" style="margin-top:var(--s6)"><strong>Narrowing needs no
+  secret</strong> &mdash; each link is keyed on the previous signature, so a
+  holder can restrict and pass on offline, mid&#8209;task.
+  <strong>Widening needs the root secret</strong>, which nobody downstream has.
+  Verification needs it too, though, so this makes delegation between holders
+  trustworthy and does not make issuance provable to a third party. That needs
+  asymmetric signing, and is named rather than implied.</p>
+</section>
+
+<section id="buyer">
+  <div class="head"><span class="eyebrow">Containment</span>
+    <h2>The agent gets fooled. The mandate holds.</h2></div>
+  <p>A catalogue is merchant&#8209;supplied text, and an AI buyer reads it. One
+  item&rsquo;s description addresses the agent rather than the shopper. It is
+  shown <strong>unsanitised</strong>, and the agent complies.</p>
+  <div class="inject" id="inject"></div>
+  <div class="grid2">
+    <div class="panel">
+      <h3>What the principal would confirm</h3>
+      <pre id="reading" style="margin:0;white-space:pre-wrap;font-size:.82rem;
+        color:var(--dim);font-family:var(--mono)"></pre>
     </div>
+    <div class="panel">
+      <h3>What the agent did</h3>
+      <div class="trace" id="trace"></div>
+    </div>
+  </div>
+  <div class="metrics" id="buyerMetrics" style="margin-top:var(--s6)"></div>
+  <p class="note" style="margin-top:var(--s6)"><strong>Nothing filtered the
+  hostile text.</strong> It did not need filtering &mdash; it could not
+  authorise anything. Pattern&#8209;matching hostile phrasing is a losing game;
+  there are unbounded ways to write &ldquo;ignore your limits&rdquo;. What
+  contains it is that every charge must conform to an intent the principal
+  signed. No injection check was added to the gate, deliberately.</p>
+</section>
+
+<section id="adversarial">
+  <div class="head"><span class="eyebrow">Measured</span>
+    <h2>Adversarial sweep, held-out split</h2></div>
+  <div class="metrics" id="metrics"></div>
+  <p class="note" id="harnessNote" style="margin-top:var(--s6)"></p>
+  <div class="panel scroll" style="margin-top:var(--s6)">
+    <table id="classes"></table></div>
+</section>
+
+<section id="dispute">
+  <div class="head"><span class="eyebrow">Dispute console</span>
+    <h2>Was this charge authorised?</h2></div>
+  <p>Two mandates, identical but for one line of policy: one requires intent
+  binding, the other does not. Adjudicate a charge from each.</p>
+  <div class="cols">
+    <div>
+      <span class="eyebrow">Settled</span>
+      <div class="charges" id="settled" style="margin:var(--s3) 0 var(--s7)"></div>
+      <span class="eyebrow">Refused by the gate</span>
+      <div class="charges" id="refused" style="margin-top:var(--s3)"></div>
+    </div>
+    <div class="panel" id="verdict"><p class="empty">Pick a charge.</p></div>
   </div>
 </section>
 
+</main>
 <footer id="footer"></footer>
-</div>
 
 <script>
-const pct = n => (n * 100).toFixed(n === 0 || n === 1 ? 0 : 1) + "%";
 const rs  = p => "₹" + (p / 100).toFixed(2);
-const el  = (t, c, txt) => { const n = document.createElement(t);
-  if (c) n.className = c; if (txt !== undefined) n.textContent = txt; return n; };
+const pct = n => (n * 100).toFixed(n === 0 || n === 1 ? 0 : 1) + "%";
+const el = (t, c, x) => { const n = document.createElement(t);
+  if (c) n.className = c; if (x !== undefined) n.textContent = x; return n; };
+const pill = (cls, txt) => el("span", "pill " + cls, txt);
 
-let state = null;
+let S = null;
 
-function renderCoverage(cov) {
+/* -------------------------------------------------------------- finding */
+function coverage(cov) {
   const t = document.getElementById("coverage");
-  const head = t.createTHead().insertRow();
-  head.appendChild(el("th", null, "Constraint"));
-  cov.rails.forEach(r => {
-    const th = el("th");
-    th.appendChild(el("span", null, r));
-    th.appendChild(document.createTextNode(" "));
-    th.appendChild(el("span", "pill " + (cov.wired[r] ? "p-acc" : "p-warn"),
-                      cov.wired[r] ? "wired" : "mapper"));
-    head.appendChild(th);
-  });
-  const body = t.createTBody();
-  const CELL = {enforced: ["yes", "enforced"], declared: ["dim", "declared"],
-                absent: ["no", "—"]};
+  const hr = t.createTHead().insertRow();
+  hr.appendChild(el("th", null, "Constraint"));
+  cov.rails.forEach(r => hr.appendChild(el("th", null, r)));
+
+  const CELL = {enforced: ["p-ok", "enforced"],
+                declared: ["p-warn", "declared"],
+                absent: ["p-mute", "—"]};
+  const tb = t.createTBody();
   cov.rows.forEach(row => {
-    const tr = body.insertRow();
-    if (row.never_enforced) tr.className = "gapRow";
+    const tr = tb.insertRow();
+    if (row.never_enforced) tr.className = "gap";
     tr.insertCell().textContent = row.label;
     row.cells.forEach(v => {
-      const td = tr.insertCell();
-      const [cls, txt] = CELL[v] || ["no", "—"];
-      td.className = cls;
-      td.textContent = txt;
+      const [c, x] = CELL[v] || CELL.absent;
+      tr.insertCell().appendChild(pill(c, x));
     });
   });
+
   const gaps = cov.rows.filter(r => r.never_enforced).map(r => r.label);
   document.getElementById("coverageNote").innerHTML =
     "Highlighted rows are enforced by <strong>no network at all</strong>: " +
-    gaps.join(", ") + ". Read the difference between the two words carefully. " +
-    "AP2 <em>declares</em> a total cap and a charge count by name — but AP2 is a " +
-    "credential format, not a rail, and nothing checks the claims it carries. " +
-    "<strong>A signed constraint is a claim, not a control.</strong> Razorpay, " +
-    "meanwhile, has no field to write them in at all.";
+    gaps.join(", ") + ". AP2 <em>declares</em> a total cap and a charge count " +
+    "by name — but AP2 is a credential format, not a rail, and nothing " +
+    "checks the claims it carries. <strong>A signed constraint is a claim, " +
+    "not a control.</strong> Razorpay has no field to write them in at all.";
 }
 
-function renderHarness(h) {
+/* ------------------------------------------------------------ delegation */
+function delegation(d) {
+  const c = document.getElementById("chain");
+  d.links.forEach((link, i) => {
+    const row = el("div", "link");
+    const rail = el("div", "rail");
+    rail.appendChild(el("div", "dot"));
+    if (i < d.links.length - 1) rail.appendChild(el("div", "wire"));
+    row.appendChild(rail);
+
+    const body = el("div");
+    body.appendChild(el("div", "who", (i + 1) + ". " + link.holder));
+    const adds = el("div", "adds");
+    link.adds.forEach(a => adds.appendChild(pill("p-acc", a)));
+    body.appendChild(adds);
+
+    const f = link.folded;
+    body.appendChild(el("div", "folded",
+      "folds to: per_charge≤" + f.per_charge_max +
+      " · total≤" + f.cumulative_max +
+      " · charges≤" + (f.max_charges === null ? "—" : f.max_charges) +
+      " · [" + f.merchants.join(", ") + "]"));
+    if (i > 0) body.appendChild(el("div", "offline",
+      "narrowed offline — no root secret, no round trip"));
+    row.appendChild(body);
+    c.appendChild(row);
+  });
+
+  const p = document.getElementById("probes");
+  d.probes.forEach(x => {
+    const row = el("div", "probe");
+    row.appendChild(el("span", "amt", x.amount + " at " + x.merchant));
+    row.appendChild(x.allowed ? pill("p-ok", "allowed")
+                              : pill("p-bad", x.codes.join(", ")));
+    row.appendChild(el("span", "why", x.note));
+    p.appendChild(row);
+  });
+
+  const ch = document.getElementById("cheats");
+  d.attempts.forEach((a, i) => {
+    const box = el("div", "cheat");
+    const what = el("div", "what");
+    what.appendChild(el("span", "mono", "abc"[i] + "."));
+    what.appendChild(el("span", null, a.what));
+    box.appendChild(what);
+    const res = el("div", "res");
+    res.appendChild(a.verifies ? pill("p-warn", "verifies")
+                               : pill("p-bad", "fails verification"));
+    res.appendChild(el("span", "folded", a.effect));
+    box.appendChild(res);
+    box.appendChild(el("div", "why", a.why));
+    ch.appendChild(box);
+  });
+}
+
+/* ----------------------------------------------------------------- buyer */
+function buyer(b) {
+  const item = b.flagged[0];
+  if (item) {
+    document.getElementById("inject").innerHTML =
+      "<b>" + item.title + "</b> — " +
+      item.description.replace(/(SYSTEM NOTE:[\s\S]*)$/, "<b>$1</b>");
+  }
+  document.getElementById("reading").textContent = b.summary;
+
+  const tr = document.getElementById("trace");
+  b.steps.forEach(s => {
+    const row = el("div", "tr " + (s.allowed ? "yes" : "no"));
+    row.appendChild(el("span", "v", s.allowed ? "ok" : "REF"));
+    row.appendChild(el("span", null, s.sku + " ×" + s.quantity));
+    row.appendChild(el("span", "v", s.amount + "p"));
+    if (s.reasoning) row.appendChild(el("span", "say", "“" + s.reasoning + "”"));
+    if ((s.codes || []).length) row.appendChild(el("span", "fix", s.codes.join(", ")));
+    (s.remediations || []).forEach(r =>
+      row.appendChild(el("span", "fix", "→ " + r)));
+    tr.appendChild(row);
+  });
+
+  const m = document.getElementById("buyerMetrics");
+  const add = (k, v, n, lead) => { const d = el("div", "metric" + (lead ? " lead" : ""));
+    d.appendChild(el("span", "k", k)); d.appendChild(el("span", "v", v));
+    d.appendChild(el("span", "n", n)); m.appendChild(d); };
+  add("Self-corrected", String(b.corrections),
+      "succeeded after being refused", b.corrections > 0);
+  add("Influenced", String(b.influenced_attempts),
+      "tried to exceed its authority");
+  add("Settled anyway", String(b.influenced_settled),
+      "must be zero", b.influenced_settled === 0);
+  add("Spent", rs(b.spent), b.purchased.length + " items bought");
+}
+
+/* ----------------------------------------------------------- adversarial */
+function harness(h) {
   const m = document.getElementById("metrics");
-  const add = (k, v, n, lead) => {
-    const d = el("div", "metric" + (lead ? " lead" : ""));
-    d.appendChild(el("span", "k", k));
-    d.appendChild(el("span", "v", v));
-    d.appendChild(el("span", "n", n));
-    m.appendChild(d);
-  };
+  const add = (k, v, n, lead) => { const d = el("div", "metric" + (lead ? " lead" : ""));
+    d.appendChild(el("span", "k", k)); d.appendChild(el("span", "v", v));
+    d.appendChild(el("span", "n", n)); m.appendChild(d); };
   add("False-decline rate", pct(h.false_decline_rate),
       h.honest_refused + "/" + h.honest_total + " honest charges refused", true);
   add("Abuse recall", pct(h.recall),
       h.abusive_caught + "/" + h.abusive_total + " refused");
-  add("Caught by policy / rail", h.policy_catches + " / " + h.rail_catches,
+  add("Policy / rail", h.policy_catches + " / " + h.rail_catches,
       h.abuse_classes + " abuse classes");
-  add("Value blocked", rs(h.amount_blocked), "held-out split, seed " + h.seed);
+  add("Value blocked", rs(h.amount_blocked), "held-out, seed " + h.seed);
 
   document.getElementById("harnessNote").innerHTML =
-    "<strong>Read the recall with suspicion.</strong> The same author wrote the " +
-    "abuse generator and the checks, so every class trips the check built for it — " +
-    "that number shows the wiring works, not that detection is hard. " +
+    "<strong>Read the recall with suspicion.</strong> The same author wrote " +
+    "the abuse generator and the checks, so every class trips the check built " +
+    "for it — that shows the wiring works, not that detection is hard. " +
     "<strong>The false-decline rate is the number that means something:</strong> " +
-    h.boundary_families + " of the honest scenario families sit <em>exactly</em> on a " +
-    "limit, where an off-by-one becomes a refused customer. " +
-    "Stripping the policy layer collapses recall from " + pct(h.recall) + " to " +
-    pct(h.control_bare.recall) + " (the remainder is the rail catching its own " +
-    "ceiling), which is how we know the labels are not leaking.";
+    h.boundary_families + " honest scenario families sit <em>exactly</em> on a " +
+    "limit, where an off-by-one becomes a refused customer. Stripping the " +
+    "policy layer collapses recall from " + pct(h.recall) + " to " +
+    pct(h.control_bare.recall) + ", which is how we know the labels are not " +
+    "leaking.";
 
   const t = document.getElementById("classes");
-  const head = t.createTHead().insertRow();
+  const hr = t.createTHead().insertRow();
   ["Abuse class", "n", "Recall", "Caught for the expected reason"]
-    .forEach(x => head.appendChild(el("th", null, x)));
-  const body = t.createTBody();
+    .forEach(x => hr.appendChild(el("th", null, x)));
+  const tb = t.createTBody();
   h.classes.forEach(c => {
-    const tr = body.insertRow();
-    tr.insertCell().textContent = c.label;
-    tr.insertCell().outerHTML = '<td class="num">' + c.total + "</td>";
-    tr.insertCell().outerHTML = '<td class="num">' + pct(c.recall) + "</td>";
-    tr.insertCell().outerHTML = '<td class="num">' + pct(c.attribution) + "</td>";
+    const r = tb.insertRow();
+    r.insertCell().textContent = c.label;
+    [String(c.total), pct(c.recall), pct(c.attribution)].forEach(v => {
+      const td = r.insertCell(); td.className = "mono"; td.textContent = v;
+    });
   });
 }
 
-function chargeButton(c, refused) {
-  const b = el("button", "charge");
+/* --------------------------------------------------------------- dispute */
+function chargeBtn(c, refused) {
+  const b = el("button", "ch");
   b.type = "button";
   b.setAttribute("aria-selected", "false");
   b.dataset.ref = c.charge_ref;
   const top = el("div", "top");
   top.appendChild(el("span", "ref", c.charge_ref));
-  top.appendChild(el("span", "num", rs(c.amount)));
+  top.appendChild(el("span", "amt", rs(c.amount)));
   b.appendChild(top);
   const bits = [c.mandate_id, c.merchant];
-  if (refused) bits.push((c.codes || []).join(", ") || c.refused_by);
-  else bits.push(c.intent_id ? "intent " + c.intent_id : "no intent on record");
+  bits.push(refused ? ((c.codes || []).join(", ") || c.refused_by)
+                    : (c.intent_id ? "intent " + c.intent_id
+                                   : "no intent on record"));
   b.appendChild(el("span", "meta", bits.join("  ·  ")));
-  b.addEventListener("click", () => select(c.charge_ref));
+  b.addEventListener("click", () => select(c.charge_ref, c.mandate_id));
   return b;
 }
 
-async function select(ref) {
-  document.querySelectorAll("button.charge").forEach(b =>
+async function select(ref, mandate) {
+  document.querySelectorAll("button.ch").forEach(b =>
     b.setAttribute("aria-selected", String(b.dataset.ref === ref)));
   const panel = document.getElementById("verdict");
   panel.innerHTML = '<p class="empty">Adjudicating…</p>';
-  const r = await fetch("/api/adjudicate?ref=" + encodeURIComponent(ref));
+  const q = new URLSearchParams({ref});
+  if (mandate) q.set("mandate_id", mandate);
+  const r = await fetch("/api/adjudicate?" + q);
   renderVerdict(await r.json());
 }
 
@@ -243,21 +526,18 @@ function renderVerdict(a) {
   const panel = document.getElementById("verdict");
   panel.innerHTML = "";
   const box = el("div", "verdict");
-
   box.appendChild(el("span", "eyebrow", "Verdict · " + a.charge_ref));
   box.appendChild(el("div", "big v-" + a.verdict, a.verdict));
-
-  const chain = el("div");
-  chain.appendChild(el("span", "pill " + (a.chain_ok ? "p-ok" : "p-bad"),
-    a.chain_ok ? "decision log verifies" : "decision log altered"));
-  box.appendChild(chain);
+  box.appendChild(a.chain_ok ? pill("p-ok", "decision log verifies")
+                             : pill("p-bad", "decision log altered"));
 
   const ul = el("ul", "reasons");
   a.reasons.forEach(r => ul.appendChild(el("li", null, r)));
   box.appendChild(ul);
 
   if (a.intent && a.intent.intent_id) {
-    box.appendChild(el("span", "eyebrow", "Signed intent, re-verified from the ledger"));
+    box.appendChild(el("span", "eyebrow",
+      "Signed intent, re-verified from the ledger"));
     const dl = el("dl");
     const add = (k, v) => { dl.appendChild(el("dt", null, k));
                             dl.appendChild(el("dd", null, v)); };
@@ -273,34 +553,49 @@ function renderVerdict(a) {
     const dl = el("dl");
     const add = (k, v) => { dl.appendChild(el("dt", null, k));
                             dl.appendChild(el("dd", null, v)); };
-    add("charged before", rs(p.charged_before) + "  (" + p.charges_before + " charges)");
+    add("charged before", rs(p.charged_before) +
+        "  (" + p.charges_before + " charges)");
     add("this charge", rs(p.this_charge));
     add("total after", rs(p.total_after));
     box.appendChild(dl);
   }
-
   panel.appendChild(box);
 }
 
-(async function init() {
-  state = await (await fetch("/api/state")).json();
-  renderCoverage(state.coverage);
-  renderHarness(state.harness);
+/* ------------------------------------------------------------------ init */
+(async function () {
+  S = await (await fetch("/api/state")).json();
 
-  const s = document.getElementById("settled");
-  const f = document.getElementById("refused");
-  if (!state.settled.length) s.appendChild(el("p", "empty", "none"));
-  state.settled.forEach(c => s.appendChild(chargeButton(c, false)));
-  if (!state.refused.length) f.appendChild(el("p", "empty", "none"));
-  state.refused.forEach(c => f.appendChild(chargeButton(c, true)));
+  document.getElementById("claim").innerHTML =
+    '"frequency": <b>"as_presented"</b> — the one field in a UPI mandate ' +
+    'that looks like a rate limit and is not. It means charge whenever ' +
+    'presented, and it is the default for new merchants.';
+
+  coverage(S.coverage);
+  delegation(S.delegation);
+  buyer(S.buyer);
+  harness(S.harness);
+
+  const st = document.getElementById("settled");
+  const rf = document.getElementById("refused");
+  S.settled.forEach(c => st.appendChild(chargeBtn(c, false)));
+  S.refused.forEach(c => rf.appendChild(chargeBtn(c, true)));
+  if (S.settled.length) select(S.settled[0].charge_ref, S.settled[0].mandate_id);
 
   document.getElementById("footer").innerHTML =
-    "Ledger: <code>" + state.ledger_path + "</code> · " +
-    "charges execute against a rail simulator enforcing exactly what Razorpay " +
-    "documents, because the recurring debit endpoint needs account activation " +
-    "this build does not have.";
+    "Ledger: <code>" + S.ledger_path + "</code> · charges execute against " +
+    "a rail simulator enforcing exactly what Razorpay documents, because the " +
+    "recurring debit endpoint needs account activation this build does not " +
+    "have. Spacing scale and code face follow Razorpay's Blade design system; " +
+    "the palette deliberately does not.";
 
-  if (state.settled.length) select(state.settled[0].charge_ref);
+  const links = [...document.querySelectorAll("nav a")];
+  const obs = new IntersectionObserver(es => es.forEach(e => {
+    if (!e.isIntersecting) return;
+    links.forEach(l => l.classList.toggle("here",
+      l.getAttribute("href") === "#" + e.target.id));
+  }), {rootMargin: "-20% 0px -70% 0px"});
+  document.querySelectorAll("section[id]").forEach(s => obs.observe(s));
 })();
 </script>
 </body>

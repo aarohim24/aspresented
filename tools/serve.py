@@ -20,6 +20,7 @@ import json
 import os
 import random
 import sys
+import tempfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -32,6 +33,13 @@ from mandate_gate.adapters.ap2 import AP2Adapter                    # noqa: E402
 from mandate_gate.adapters.card_on_file import CardOnFileAdapter    # noqa: E402
 from mandate_gate.adapters.razorpay_upi import RazorpayUpiAdapter   # noqa: E402
 from mandate_gate.adjudicate import Adjudicator                     # noqa: E402
+from mandate_gate.attack import scenario                            # noqa: E402
+from mandate_gate.attack.scenario import RAIL                       # noqa: E402
+from mandate_gate.authority import Authority, Caveat, admit         # noqa: E402
+from mandate_gate.buyer import BuyingAgent, interpret               # noqa: E402
+from mandate_gate.buyer import catalogue as buyer_catalogue         # noqa: E402
+from mandate_gate.buyer.scripted import (ScriptedClient,            # noqa: E402
+                                         ScriptedInterpreter)
 from mandate_gate.charge import ChargeRequest, Intent               # noqa: E402
 from mandate_gate.envelope import (ABSENT, DECLARED, ENFORCED,       # noqa: E402
                                    Constraint, Limits, MandateEnvelope,
@@ -142,6 +150,141 @@ def build_harness(seed: int = 7) -> dict:
     }
 
 
+# ---------------------------------------------------------- delegation
+def build_delegation() -> dict:
+    """
+    The three-link chain, plus the three ways a holder might try to widen it.
+
+    Computed here rather than transcribed, so the page cannot claim a property
+    the code does not have.
+    """
+    root_secret = b"DEMO-ONLY-principal-root"
+    principal = Authority.issue(
+        root_secret, authority_id="auth-root", mandate_id="token_demo",
+        caveats=[Caveat("per_charge_max", 500),
+                 Caveat("cumulative_max", 2000),
+                 Caveat("merchant_in", ("shop-a", "shop-b")),
+                 Caveat("expires_at", T0 + 7 * 86400)])
+    shopping = principal.attenuate(Caveat("per_charge_max", 200),
+                                   Caveat("merchant_in", ("shop-a",)))
+    delivery = shopping.attenuate(Caveat("max_charges", 3))
+
+    def fold(a):
+        limits = a.to_limits()
+        return {
+            "per_charge_max": limits.per_charge_max,
+            "cumulative_max": limits.cumulative_max,
+            "max_charges": limits.max_charges,
+            "merchants": sorted(limits.scope.merchants) if limits.scope else [],
+        }
+
+    links = [
+        {"holder": "principal", "adds": [c.describe() for c in principal.caveats],
+         "folded": fold(principal), "depth": principal.depth},
+        {"holder": "shopping agent",
+         "adds": [c.describe() for c in shopping.caveats[len(principal.caveats):]],
+         "folded": fold(shopping), "depth": shopping.depth},
+        {"holder": "delivery agent",
+         "adds": [c.describe() for c in delivery.caveats[len(shopping.caveats):]],
+         "folded": fold(delivery), "depth": delivery.depth},
+    ]
+
+    # what the last holder can actually spend -- a fresh gate per probe, so an
+    # earlier refusal's counter cannot mask the constraint being demonstrated
+    limits = admit(delivery, root_secret, mandate_id="token_demo").limits
+    probes = []
+    for amount, merchant, note in (
+            (150, "shop-a", "inside every narrowing"),
+            (400, "shop-a", "inside the principal's 500, outside its own 200"),
+            (100, "shop-b", "inside the principal's scope, outside its own")):
+        env = MandateEnvelope(mandate_id="token_demo",
+                              source="razorpay-upi-autopay",
+                              subject="cust_demo", rail=RAIL, policy=limits)
+        clock = {"now": T0}
+        led = Ledger(os.path.join(tempfile.mkdtemp(), "d.jsonl"),
+                     clock=lambda: clock["now"])
+        g = Gate(env, led, RailSimulator(limits=RAIL), SECRET,
+                 clock=lambda: clock["now"])
+        intent = g.record_intent(Intent(
+            intent_id="int_d", mandate_id="token_demo",
+            max_amount=RAIL.per_charge_max, expires_at=T0 + 7 * 86400))
+        d = g.authorize(ChargeRequest(
+            mandate_id="token_demo", amount=amount,
+            idempotency_key=f"d-{amount}-{merchant}",
+            intent_id=intent.intent_id, merchant=merchant))
+        probes.append({"amount": amount, "merchant": merchant, "note": note,
+                       "allowed": d.allowed, "codes": list(d.codes)})
+
+    # the three ways to cheat
+    looser = delivery.attenuate(Caveat("per_charge_max", 100_000))
+    stripped = Authority(delivery.authority_id, delivery.mandate_id,
+                         delivery.caveats[:-1], delivery.signature)
+    edited = list(delivery.caveats)
+    edited[0] = Caveat("per_charge_max", 100_000)
+    tampered = Authority(delivery.authority_id, delivery.mandate_id,
+                         tuple(edited), delivery.signature)
+
+    attempts = [
+        {"what": "append a looser caveat (per_charge_max <= 100000)",
+         "verifies": looser.verify(root_secret),
+         "effect": f"per_charge_max still {looser.to_limits().per_charge_max}",
+         "why": "Inert. Folding takes the tighter value, so a loose caveat "
+                "says nothing."},
+        {"what": "drop the caveat it added itself, keep the signature",
+         "verifies": stripped.verify(root_secret),
+         "effect": "rejected at admission",
+         "why": "The chain is keyed on every link. Removing one breaks it."},
+        {"what": "edit the principal's own caveat",
+         "verifies": tampered.verify(root_secret),
+         "effect": "rejected at admission",
+         "why": "Recomputing needs the root secret, which no holder "
+                "downstream has."},
+    ]
+    return {"links": links, "probes": probes, "attempts": attempts,
+            "folded": fold(delivery)}
+
+
+# --------------------------------------------------------------- buyer
+def build_buyer() -> dict:
+    """The injection trace: the agent complies, the mandate contains it."""
+    reading = interpret(
+        "Get me milk, bread and eggs from shop-a this week. "
+        "Nothing over five rupees an item.",
+        ScriptedInterpreter(),
+        mandate_id=scenario.MANDATE_ID, intent_id="int_shopping",
+        secret=SECRET, now=T0, ceiling=scenario.RAIL.per_charge_max)
+
+    envelope = scenario.envelope()
+    clock = {"now": T0}
+    led = Ledger(os.path.join(tempfile.mkdtemp(), "b.jsonl"),
+                 clock=lambda: clock["now"])
+    gate = Gate(envelope, led, RailSimulator(limits=envelope.rail), SECRET,
+                clock=lambda: clock["now"])
+    gate.record_intent(reading.intent)
+
+    outcome = BuyingAgent(gate, reading.intent, ScriptedClient(),
+                          goal=reading.goal).shop(max_steps=10)
+
+    flagged = [{"sku": i.sku, "title": i.title, "description": i.description}
+               for i in buyer_catalogue.suspicious()]
+    return {
+        "instruction": ("Get me milk, bread and eggs from shop-a this week. "
+                        "Nothing over five rupees an item."),
+        "summary": reading.summary(),
+        "flagged": flagged,
+        "steps": [{"sku": s.sku, "quantity": s.quantity, "amount": s.amount,
+                   "reasoning": s.reasoning, "allowed": s.allowed,
+                   "codes": list(s.codes),
+                   "remediations": list(s.remediations)}
+                  for s in outcome.steps],
+        "spent": outcome.spent,
+        "purchased": outcome.purchased,
+        "corrections": outcome.corrections,
+        "influenced_attempts": outcome.influenced_attempts,
+        "influenced_settled": outcome.influenced_settled,
+    }
+
+
 # --------------------------------------------------------- demo ledger
 def build_demo_ledger() -> Adjudicator:
     if LEDGER_PATH.exists():
@@ -233,8 +376,13 @@ class Handler(BaseHTTPRequestHandler):
                               "application/json")
 
         if route.path == "/api/adjudicate":
-            ref = (parse_qs(route.query).get("ref") or [""])[0]
-            result = self.adjudicator.adjudicate(ref).as_dict()
+            query = parse_qs(route.query)
+            ref = (query.get("ref") or [""])[0]
+            # Scoped by mandate: idempotency keys are unique per mandate, not
+            # globally, and this ledger deliberately holds two.
+            mandate = (query.get("mandate_id") or [None])[0]
+            result = self.adjudicator.adjudicate(
+                ref, mandate_id=mandate).as_dict()
             return self._send(json.dumps(result).encode(), "application/json")
 
         self.send_error(404)
@@ -246,6 +394,10 @@ def main() -> int:
     coverage = build_coverage()
     print("  running the harness ...")
     harness = build_harness()
+    print("  building the delegation chain ...")
+    delegation = build_delegation()
+    print("  running the buyer ...")
+    buyer = build_buyer()
     print("  building the demo ledger ...")
     adjudicator = build_demo_ledger()
 
@@ -253,6 +405,8 @@ def main() -> int:
     Handler.state = {
         "coverage": coverage,
         "harness": harness,
+        "delegation": delegation,
+        "buyer": buyer,
         "settled": adjudicator.disputable(),
         "refused": adjudicator.refused(),
         "ledger_path": str(LEDGER_PATH.relative_to(ROOT)),
