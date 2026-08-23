@@ -171,6 +171,24 @@ class Gate:
                 f"mandate lapsed at {limits.expires_at}, server clock {now}",
                 "Obtain a fresh mandate; this one cannot be revived."))
 
+        # Deliberately the *policy* ceiling, not the effective one. The rail
+        # enforces its own, and checking the effective value here would
+        # pre-empt it -- collapsing the rail/policy distinction the whole
+        # project rests on, and turning `over_ceiling` from a rail catch into a
+        # policy catch.
+        #
+        # So this fires only where policy narrows what the rail allows. Nothing
+        # narrowed it until authority attenuation arrived, which is how a
+        # limit that was computed correctly and consulted by nothing went
+        # unnoticed on a money path.
+        policy_ceiling = self.envelope.policy.per_charge_max
+        if policy_ceiling is not None and req.amount > policy_ceiling:
+            out.append(Refusal(
+                "PER_CHARGE_EXCEEDED", "amount",
+                f"{req.amount} exceeds the {policy_ceiling} paise per-charge "
+                f"ceiling this authority permits",
+                f"Charge at most {policy_ceiling} paise."))
+
         if limits.cumulative_max is not None:
             projected = st.charged_total + req.amount
             if projected > limits.cumulative_max:

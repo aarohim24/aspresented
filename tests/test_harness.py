@@ -35,12 +35,30 @@ class TestScenarioConstruction(unittest.TestCase):
                 self.assertEqual(labels, {"honest"}, s.session_id)
 
     def test_abuse_sessions_carry_honest_prefixes(self):
-        """Draining requires legitimate charges first; they must count."""
+        """
+        Draining requires legitimate charges first, and those must count toward
+        the false-decline rate -- so a gate that panics before the cap is
+        reached is penalised rather than praised.
+
+        The count is derived rather than hardcoded: the policy ceiling does not
+        divide the cumulative cap evenly, so the prefix is ceiling-sized charges
+        plus a remainder.
+        """
+        from mandate_gate.harness.scenarios import POLICY
         drains = [s for s in corpus() if s.kind == "drain_cumulative"]
         self.assertTrue(drains)
         labels = [a.label for a in drains[0].attempts]
-        self.assertEqual(labels.count("honest"), 4)
+
+        step = POLICY.per_charge_max
+        expected = -(-POLICY.cumulative_max // step)      # ceil division
+        self.assertEqual(labels.count("honest"), expected)
         self.assertEqual(labels[-1], "drain_cumulative")
+
+        # and the prefix must land on the cap exactly, or the boundary case
+        # is not a boundary case
+        prefix = [a for a in drains[0].attempts if a.label == "honest"]
+        self.assertEqual(sum(a.request.amount for a in prefix),
+                         POLICY.cumulative_max)
 
     def test_generation_is_deterministic(self):
         a = [s.session_id for s in corpus(seed=3)]
@@ -66,12 +84,27 @@ class TestRunner(unittest.TestCase):
             self.assertIn(cls, report.classes)
             self.assertEqual(report.classes[cls].recall, 1.0, cls)
 
-    def test_over_ceiling_is_the_rails_catch_not_policys(self):
-        """A control: proves the rail simulator is doing its own job."""
+    def test_over_ceiling_is_the_rails_catch_once_policy_is_out_of_the_way(self):
+        """
+        A control that the rail simulator does its own job.
+
+        With a policy in force the policy ceiling is tighter and fires first,
+        which is correct -- and it means the rail's own check can only be
+        observed with policy stripped. That is also what makes the preflight's
+        recall non-zero rather than zero.
+        """
         sessions = [s for s in self.sessions if s.kind == "over_ceiling"]
-        for o in runner.run(sessions, policy=POLICY, rail_limits=RAIL):
+
+        with_policy = runner.run(sessions, policy=POLICY, rail_limits=RAIL)
+        for o in with_policy:
             if o.label == "over_ceiling":
-                self.assertEqual(o.refused_by, "rail")
+                self.assertFalse(o.allowed)
+                self.assertEqual(o.refused_by, "policy")
+
+        bare = runner.run(sessions, policy=Limits(), duplicate_window=-1)
+        caught_by_rail = [o for o in bare
+                          if o.label == "over_ceiling" and o.refused_by == "rail"]
+        self.assertTrue(caught_by_rail, "the rail caught nothing on its own")
 
     def test_correct_retry_is_replayed_not_refused(self):
         sessions = [s for s in self.sessions

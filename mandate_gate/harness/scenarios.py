@@ -34,6 +34,10 @@ RAIL = Limits(per_charge_max=CEILING, expires_at=T0 + 86_400 * 30)
 
 #: What the merchant adds. Every field here is one the rail has no room for.
 POLICY = Limits(
+    #: Narrower than the rail's own 500. Present because it was absent: no
+    #: scenario set a policy per-charge ceiling, so a gate that never checked
+    #: one went unnoticed until an authority attenuated it.
+    per_charge_max=450,
     cumulative_max=2000,
     max_charges=6,
     rate_limit=Window(seconds=HOUR, max_charges=4),
@@ -52,7 +56,7 @@ BOUNDARY_SESSIONS = (
     "exact_rate_limit",
     "exact_charge_count",
     "exact_intent_amount",
-    "exact_rail_ceiling",
+    "exact_policy_ceiling",
     "correct_retry_same_key",
     "just_outside_duplicate_window",
     "final_second_before_expiry",
@@ -73,6 +77,7 @@ ABUSE_CLASSES = (
     "drain_by_one_paisa",
     "burst_one_second_early",
     "clock_advance",
+    "over_policy_ceiling",
 )
 
 #: The code we expect to fire. Used for attribution, never for scoring recall.
@@ -90,6 +95,7 @@ EXPECTED_CODE = {
     "over_ceiling": None,          # the rail's job, not policy's
     "drain_by_one_paisa": "CUMULATIVE_EXCEEDED",
     "burst_one_second_early": "RATE_EXCEEDED",
+    "over_policy_ceiling": "PER_CHARGE_EXCEEDED",
     "clock_advance": "RATE_EXCEEDED",
 }
 
@@ -115,6 +121,24 @@ class Session:
     attempts: list = field(default_factory=list)
     #: Set when the session needs a policy expiry earlier than the rail's.
     policy_expires_at: int | None = None
+
+
+def _fill_to_cap(b) -> int:
+    """
+    Honest charges summing to exactly the cumulative cap.
+
+    Written as a helper because the policy ceiling does not divide the cap
+    evenly, and "close to the cap" is not the scenario -- the boundary cases
+    only mean something if the total lands on it to the paisa.
+    """
+    step = POLICY.per_charge_max
+    total, i = 0, 0
+    while total < POLICY.cumulative_max:
+        amount = min(step, POLICY.cumulative_max - total)
+        b.honest_charge(amount, T0 + i * 2 * HOUR)
+        total += amount
+        i += 1
+    return total
 
 
 class _Builder:
@@ -161,7 +185,7 @@ class _Builder:
 def _honest_session(sid: str, rng) -> Session:
     b = _Builder(sid, rng, kind=HONEST)
     for i in range(rng.randint(2, 4)):
-        b.honest_charge(rng.choice((150, 250, 400, CEILING)),
+        b.honest_charge(rng.choice((150, 250, 400, POLICY.per_charge_max)),
                         T0 + i * 2 * HOUR)
     return b.session
 
@@ -170,12 +194,12 @@ def _abuse_session(sid: str, kind: str, rng) -> Session:
     b = _Builder(sid, rng, kind=kind)
 
     if kind == "drain_cumulative":
-        # Four legitimate charges reach the 2000 cap exactly, then one more.
-        for i in range(4):
-            b.honest_charge(CEILING, T0 + i * 2 * HOUR)
-        at = T0 + 8 * HOUR
-        intent = b.intent(CEILING, IN_SCOPE[0], at)
-        b.attempt(kind, CEILING, at, IN_SCOPE[0], intent.intent_id)
+        # Fill the cap exactly, then ask for a full charge more.
+        _fill_to_cap(b)
+        at = T0 + 24 * HOUR
+        intent = b.intent(POLICY.per_charge_max, IN_SCOPE[0], at)
+        b.attempt(kind, POLICY.per_charge_max, at, IN_SCOPE[0],
+                  intent.intent_id)
 
     elif kind == "burst_rate":
         # Small amounts so the cumulative cap cannot fire first.
@@ -233,11 +257,10 @@ def _abuse_session(sid: str, kind: str, rng) -> Session:
         b.attempt(kind, 200, at, IN_SCOPE[0], intent.intent_id)
 
     elif kind == "drain_by_one_paisa":
-        # Four charges reach the cap exactly, then a single paisa more. Tests
-        # that the cumulative check is not merely catching gross overshoot.
-        for i in range(4):
-            b.honest_charge(CEILING, T0 + i * 2 * HOUR)
-        at = T0 + 8 * HOUR
+        # The cap exactly, then a single paisa more. Tests that the cumulative
+        # check is not merely catching gross overshoot.
+        _fill_to_cap(b)
+        at = T0 + 24 * HOUR
         intent = b.intent(1, IN_SCOPE[0], at)
         b.attempt(kind, 1, at, IN_SCOPE[0], intent.intent_id)
 
@@ -261,6 +284,14 @@ def _abuse_session(sid: str, kind: str, rng) -> Session:
         b.attempt(kind, 100, at, IN_SCOPE[0], intent.intent_id,
                   claimed_at=at + 2 * HOUR)
 
+    elif kind == "over_policy_ceiling":
+        # Above the policy ceiling, below the rail's. Only the gate can catch
+        # this, which is exactly the case that was going unchecked.
+        at = T0 + 2 * HOUR
+        intent = b.intent(CEILING, IN_SCOPE[0], at)
+        b.attempt(kind, POLICY.per_charge_max + 1, at, IN_SCOPE[0],
+                  intent.intent_id)
+
     elif kind == "over_ceiling":
         at = T0 + 2 * HOUR
         intent = b.intent(CEILING * 4, IN_SCOPE[0], at)
@@ -281,9 +312,9 @@ def _boundary_session(sid: str, kind: str, rng) -> Session:
     b = _Builder(sid, rng, kind=f"boundary:{kind}")
 
     if kind == "exact_cumulative_cap":
-        # 4 x 500 == the 2000 cap, to the paisa.
-        for i in range(4):
-            b.honest_charge(CEILING, T0 + i * 2 * HOUR)
+        # Summing to the cap, to the paisa. A gate that refuses the charge that
+        # lands exactly on a limit is broken, not conservative.
+        _fill_to_cap(b)
 
     elif kind == "exact_rate_limit":
         # Exactly max_charges inside one window.
@@ -299,8 +330,10 @@ def _boundary_session(sid: str, kind: str, rng) -> Session:
         intent = b.intent(300, IN_SCOPE[0], at)
         b.attempt(HONEST, 300, at, IN_SCOPE[0], intent.intent_id)
 
-    elif kind == "exact_rail_ceiling":
-        b.honest_charge(CEILING, T0)
+    elif kind == "exact_policy_ceiling":
+        # Exactly the policy ceiling, which must pass. An off-by-one in the new
+        # check would show up here as a false decline.
+        b.honest_charge(POLICY.per_charge_max, T0)
 
     elif kind == "correct_retry_same_key":
         # The behaviour an earlier version of this gate got wrong.
