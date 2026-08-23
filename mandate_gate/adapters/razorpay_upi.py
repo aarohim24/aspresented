@@ -103,8 +103,3 @@ class RazorpayUpiAdapter:
             return None
         return Window(seconds=seconds, max_charges=1)
 
-    @classmethod
-    def rate_is_unbounded(cls, raw: dict) -> bool:
-        """True when `frequency` permits charges at any rate."""
-        freq = (raw.get("token") or {}).get("frequency")
-        return cls._cadence(freq) is None

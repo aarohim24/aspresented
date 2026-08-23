@@ -52,9 +52,10 @@ class TestRazorpayAdapter(unittest.TestCase):
         self.assertIn("cumulative_max_amount", str(ctx.exception))
 
     def test_as_presented_is_not_a_rate_limit(self):
-        self.assertTrue(RazorpayUpiAdapter.rate_is_unbounded(RAZORPAY_ACCEPTED))
+        """It reads like a cadence setting and is the absence of one."""
         env = RazorpayUpiAdapter.normalise(RAZORPAY_ACCEPTED)
         self.assertIsNone(env.rail.rate_limit)
+        self.assertNotIn(Constraint.RATE_LIMIT, env.rail.declared())
 
     def test_fixed_frequency_buckets_DO_impose_a_cadence(self):
         """

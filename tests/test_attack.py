@@ -844,3 +844,46 @@ class TestTheRecordedRunStillReproduces(unittest.TestCase):
         raw = self.TRANSCRIPT.read_text()
         self.assertNotIn("gsk_", raw)
         self.assertNotIn("Bearer ", raw)
+
+
+class TestAttackerContract(unittest.TestCase):
+    """
+    Enforces mandate_gate/attack/base.py. Without this the Protocol is
+    decoration -- Python never checks it at runtime -- and a new attacker could
+    quietly grow a different shape.
+    """
+
+    def implementations(self):
+        from mandate_gate.attack.model import ModelAttacker, ReplayAttacker
+        return (Fuzzer, ModelAttacker, ReplayAttacker)
+
+    def instances(self):
+        """
+        Real instances, not classes. A Protocol with data members cannot be
+        used with issubclass, and an instance check is the honest one anyway --
+        NAME is set in __post_init__ on one of these.
+        """
+        from mandate_gate.attack.model import ModelAttacker, ReplayAttacker
+        return (Fuzzer("m", random.Random(1)),
+                ModelAttacker(mandate_id="m", api_key=None),
+                ReplayAttacker(mandate_id="m", transcript=[]))
+
+    def test_every_attacker_satisfies_the_protocol(self):
+        from mandate_gate.attack.base import Attacker
+        for attacker in self.instances():
+            self.assertIsInstance(attacker, Attacker,
+                                  type(attacker).__name__)
+
+    def test_every_attacker_names_itself_distinctly(self):
+        """Results are reported per attacker and never merged, so NAME matters."""
+        names = [a.NAME for a in self.instances()]
+        self.assertEqual(len(names), len(set(names)), names)
+        for name in names:
+            self.assertIsInstance(name, str)
+            self.assertTrue(name)
+
+    def test_propose_accepts_a_briefing_and_nothing_else(self):
+        import inspect
+        for cls in self.implementations():
+            params = list(inspect.signature(cls.propose).parameters)
+            self.assertEqual(params, ["self", "briefing"], cls.__name__)

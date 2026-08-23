@@ -19,7 +19,7 @@ the remediation text is useless, a competent attacker will not improve.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 @dataclass
@@ -54,15 +54,20 @@ class Briefing:
     def last(self) -> "Attempt | None":
         return self.history[-1] if self.history else None
 
-    def codes_seen(self) -> set:
-        out = set()
-        for a in self.history:
-            out.update(a.codes)
-        return out
 
-
+@runtime_checkable
 class Attacker(Protocol):
-    #: Short identifier used in reports.
+    """
+    Anything that can propose charges against a gate.
+
+    Python does not check Protocols at runtime, so this would be decoration if
+    nothing enforced it. `tests/test_attack.py::TestAttackerContract` does,
+    across every implementation -- which is what keeps a new one from quietly
+    growing a different shape.
+    """
+
+    #: Short identifier used in reports. Results from different attackers are
+    #: never merged, so this has to distinguish them.
     NAME: str
 
     def propose(self, briefing: Briefing) -> object:
