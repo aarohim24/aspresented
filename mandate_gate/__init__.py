@@ -9,6 +9,7 @@ authorised when a charge is later disputed.
 """
 
 from .adjudicate import (AUTHORISED, UNAUTHORISED, UNPROVABLE, Adjudicator)
+from .authority import Admission, Authority, Caveat, admit
 from .charge import ChargeRequest, Decision, Intent, Refusal
 from .envelope import (ABSENT, DECLARED, ENFORCED, Constraint, Limits,
                        MandateEnvelope, Scope, Window, coverage_matrix)
@@ -22,4 +23,5 @@ __all__ = [
     "coverage_matrix", "Ledger", "BrokenChain", "Gate", "RailSimulator",
     "ChargeRequest", "Decision", "Intent", "Refusal",
     "Adjudicator", "AUTHORISED", "UNAUTHORISED", "UNPROVABLE",
+    "Authority", "Caveat", "Admission", "admit",
 ]
