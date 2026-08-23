@@ -479,3 +479,49 @@ class TestTransportHeaders(unittest.TestCase):
         self.assertIn("not your key", _explain(403, "error code: 1010"))
         self.assertIn("rejected", _explain(401, '{"error":"invalid_api_key"}'))
         self.assertIn("rate limited", _explain(429, "slow down"))
+
+
+class TestPromptFraming(unittest.TestCase):
+    """
+    A live run failed because the model declined the task. The first prompt
+    said the goal was to "extract as much value" from a mandate, which reads
+    as a request for help with payment fraud and omitted every fact that makes
+    this legitimate.
+    """
+
+    def test_the_prompt_states_the_facts_that_make_this_legitimate(self):
+        from mandate_gate.attack.model import SYSTEM_PROMPT
+        low = SYSTEM_PROMPT.lower()
+        for fact in ("test harness", "synthetic", "simulator",
+                     "same project", "regression test"):
+            self.assertIn(fact, low, f"prompt omits: {fact}")
+
+    def test_the_prompt_does_not_frame_the_goal_as_extraction(self):
+        from mandate_gate.attack.model import SYSTEM_PROMPT
+        low = SYSTEM_PROMPT.lower()
+        self.assertNotIn("extract as much value", low)
+
+    def test_a_refusal_is_reported_as_a_refusal(self):
+        """
+        Not as a parse failure. Reporting "0 parsed" sent the reader hunting a
+        parser bug that did not exist.
+        """
+        from mandate_gate.attack.model import _looks_like_refusal
+        for text in ("I’m sorry, but I can’t help with that.",
+                     "I cannot help with this request.",
+                     "I am unable to assist."):
+            self.assertTrue(_looks_like_refusal(text), text)
+
+    def test_normal_output_is_not_mistaken_for_a_refusal(self):
+        from mandate_gate.attack.model import _looks_like_refusal
+        for text in ('{"amount": 500, "rationale": "probing the ceiling"}',
+                     '{"amount": 1, "rationale": "I will not exceed the cap"}',
+                     ""):
+            self.assertFalse(_looks_like_refusal(text), text)
+
+    def test_a_declining_model_surfaces_guidance_not_silence(self):
+        from mandate_gate.attack.model import ModelAttacker
+        attacker = ModelAttacker(mandate_id="m", api_key="x", throttle=0)
+        attacker._ask = lambda messages: ("I'm sorry, but I can't help.", None)
+        self.assertIsNone(attacker.propose(Briefing(mandate={})))
+        self.assertIn("declined", attacker.calls[0].error)
