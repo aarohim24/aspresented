@@ -35,6 +35,9 @@ jobs:
       - name: Adversarial harness must pass its integrity preflight
         run: python tools/run_harness.py
 
+      - name: Delegation must narrow and never widen
+        run: python tools/run_delegation.py
+
       - name: An AI buyer must be able to shop through the gate
         # The other half of the question the attackers ask. A guardrail that
         # stops fraud and also stops legitimate purchases is not a guardrail,

@@ -53,6 +53,18 @@ from mandate_gate.envelope import Limits                          # noqa: E402
 SECRET = os.environ.get("MANDATE_GATE_INTENT_SECRET",
                         "DEMO-ONLY-not-a-secret-attack").encode()
 
+#: Refusal codes that can only fire when policy narrows a particular limit.
+#: Used to tell "this scenario cannot express it" apart from "the attacker
+#: missed it" -- reporting both as one number would hide a real coverage gap
+#: behind an imaginary one.
+CODE_REQUIRES_POLICY = {
+    "PER_CHARGE_EXCEEDED": "per_charge_max",
+    "CUMULATIVE_EXCEEDED": "cumulative_max",
+    "CHARGE_COUNT_EXCEEDED": "max_charges",
+    "RATE_EXCEEDED": "rate_limit",
+    "SCOPE_VIOLATION": "scope",
+}
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -169,10 +181,27 @@ def main() -> int:
         print(f"    {mark}  {code}")
     unreached = [c for c in REFUSAL_CODES if c not in all_codes]
     if unreached:
-        print("\n  Not provoked. Each is either a gap in this attacker or a")
-        print("  check nothing exercises -- both worth knowing, neither hidden:")
+        # An unreached code has two very different causes and conflating them
+        # is misleading: a check this scenario cannot express is not the same
+        # as a check the attacker failed to provoke.
+        unreachable, missed = [], []
         for code in unreached:
-            print(f"    {code}")
+            limit = CODE_REQUIRES_POLICY.get(code)
+            if limit and getattr(POLICY, limit, None) is None:
+                unreachable.append((code, limit))
+            else:
+                missed.append(code)
+
+        if unreachable:
+            print("\n  Not expressible in this scenario -- the policy sets no")
+            print("  corresponding limit, so no attacker could provoke it here:")
+            for code, limit in unreachable:
+                print(f"    {code}  (needs policy.{limit})")
+        if missed:
+            print("\n  Not provoked, and this scenario could have. Either a gap")
+            print("  in the attacker or a check nothing exercises:")
+            for code in missed:
+                print(f"    {code}")
     print(f"\n  closest approach to the cumulative cap: {best:.0%} "
           f"(Rs {cap / 100:,.2f})")
     print("  Getting close is expected -- a mandate is meant to be spent. The")
