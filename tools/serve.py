@@ -412,10 +412,22 @@ def main() -> int:
         "ledger_path": str(LEDGER_PATH.relative_to(ROOT)),
     }
 
+    try:
+        server = HTTPServer(("127.0.0.1", PORT), Handler)
+    except OSError as exc:
+        # Bound after the work above, so this surfaces late -- and a stack trace
+        # is the wrong thing to show someone whose only mistake was starting the
+        # demo twice.
+        print(f"\n  port {PORT} is already in use ({exc.strerror}).")
+        print(f"  Something is serving there already -- try "
+              f"http://127.0.0.1:{PORT} first, or stop it with:")
+        print(f"      kill $(lsof -ti:{PORT})\n")
+        return 1
+
     print(f"\n  ready -> http://127.0.0.1:{PORT}")
     print("  ctrl-c to stop\n")
     try:
-        HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+        server.serve_forever()
     except KeyboardInterrupt:
         print("  stopped\n")
     return 0
