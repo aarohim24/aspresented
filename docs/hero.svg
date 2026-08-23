@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="350" viewBox="0 0 900 350" role="img" aria-label="The rail alone settles ₹30.00 against a ₹20.00 authorised total. The gate stops at ₹20.00.">
+<rect width="900" height="350" fill="#08080A"/>
+<rect x="16" y="16" width="868" height="318" rx="6" fill="#0F1013" stroke="#22242B"/>
+<text x="40" y="54" font-family="ui-monospace,Menlo,SF Mono,Consolas,monospace" font-size="10.5" fill="#5B6BFF" letter-spacing="0.14em">AS-PRESENTED</text>
+<text x="40" y="86" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,sans-serif" font-size="19" font-weight="600" fill="#F2F3F6">6 charges of ₹5.00, each inside the mandate’s per-charge ceiling.</text>
+<text x="40" y="108" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,sans-serif" font-size="13" fill="#9A9FAC">The mandate authorises ₹5.00 at a time. It has no field for a total.</text>
+<line x1="413.3" y1="150" x2="413.3" y2="300" stroke="#5B6BFF" stroke-width="1.5" stroke-dasharray="3 3"/>
+<text x="421.3" y="142" font-family="ui-monospace,Menlo,SF Mono,Consolas,monospace" font-size="10.5" fill="#5B6BFF">authorised total ₹20.00</text>
+<text x="40" y="158" font-family="ui-monospace,Menlo,SF Mono,Consolas,monospace" font-size="11" fill="#9A9FAC" letter-spacing="0.08em">THE RAIL ALONE</text>
+<rect x="40.0" y="172" width="90.8" height="34" rx="2" fill="#3A3F52"/>
+<rect x="133.8" y="172" width="90.8" height="34" rx="2" fill="#3A3F52"/>
+<rect x="227.7" y="172" width="90.8" height="34" rx="2" fill="#3A3F52"/>
+<rect x="321.5" y="172" width="90.8" height="34" rx="2" fill="#3A3F52"/>
+<rect x="415.3" y="172" width="90.8" height="34" rx="2" fill="#3A3F52"/>
+<rect x="509.2" y="172" width="90.8" height="34" rx="2" fill="#3A3F52"/>
+<text x="618" y="195" font-family="ui-monospace,Menlo,SF Mono,Consolas,monospace" font-size="15" font-weight="600" fill="#FF6B76">₹30.00</text>
+<text x="40" y="228" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,sans-serif" font-size="12" fill="#636875">Every charge is individually legitimate. Nothing objects.</text>
+<text x="40" y="252" font-family="ui-monospace,Menlo,SF Mono,Consolas,monospace" font-size="11" fill="#9A9FAC" letter-spacing="0.08em">WITH THE GATE</text>
+<rect x="40.0" y="266" width="90.8" height="34" rx="2" fill="#5B6BFF"/>
+<rect x="133.8" y="266" width="90.8" height="34" rx="2" fill="#5B6BFF"/>
+<rect x="227.7" y="266" width="90.8" height="34" rx="2" fill="#5B6BFF"/>
+<rect x="321.5" y="266" width="90.8" height="34" rx="2" fill="#5B6BFF"/>
+<rect x="415.3" y="266" width="90.8" height="34" rx="2" fill="none" stroke="#FF6B76" stroke-width="1.5" stroke-dasharray="4 3"/>
+<rect x="509.2" y="266" width="90.8" height="34" rx="2" fill="none" stroke="#FF6B76" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="618" y="289" font-family="ui-monospace,Menlo,SF Mono,Consolas,monospace" font-size="15" font-weight="600" fill="#3DD9A4">₹20.00</text>
+<text x="40" y="322" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,sans-serif" font-size="12" fill="#636875">2 refused: CUMULATIVE_EXCEEDED. Same mandate, same charges.</text>
+</svg>

@@ -189,6 +189,18 @@ class MandateEnvelope:
         if not self.source:
             raise ValueError("source is required")
 
+    def with_policy(self, policy: Limits) -> "MandateEnvelope":
+        """
+        The same mandate with a merchant policy attached.
+
+        An adapter returns a rail-only envelope, because an adapter may not
+        invent a constraint the rail does not enforce. Attaching policy is a
+        separate, deliberate act by the merchant -- and this is the whole
+        integration surface, so it should not require reaching for
+        `dataclasses.replace`.
+        """
+        return replace(self, policy=policy)
+
     @property
     def effective(self) -> Limits:
         """

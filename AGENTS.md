@@ -18,9 +18,11 @@ stays dependency-free.
 ## Quick Start
 
 ```bash
-python3 -W error::ResourceWarning -m unittest discover -s tests -t .  # 235 tests
+pip install -e .                    # installable library; no dependencies
+python3 -W error::ResourceWarning -m unittest discover -s tests -t .  # 238 tests
 python3 tools/run_harness.py        # integrity preflight, then held-out scores
 python3 tools/gen_coverage.py       # regenerate the README coverage table
+python3 tools/gen_hero.py           # regenerate the README figure, by measuring
 python3 tools/run_attack.py          # adversarial sweep + invariant oracle
 python3 tools/run_buyer.py           # an AI buyer shopping end to end
 python3 tools/run_delegation.py      # delegation: narrow offline, never widen
@@ -105,7 +107,17 @@ llm.py   shared OpenAI-compatible chat client for both
 - **The rail simulator must stay dumb.** A generous simulator flatters the gate
   and makes every measured number meaningless.
 - **`tools/gen_coverage.py` generates the README table.** Edit adapters, not the
-  table. CI fails if they drift.
+  table. `tests/test_readme.py` compares the committed copy against the
+  generator's output, so drift fails the build.
+- **The README's quickstart is executed by the test suite.** It is the only
+  claim a reader can paste and run, so changing a public signature means
+  changing that block in the same commit. Same rule for `docs/hero.svg`, which
+  is measured by `tools/gen_hero.py` rather than drawn.
+- **Claims are scoped to the trust boundary they hold in.** Signing here is
+  symmetric, so the evidence is sound where issuer and verifier share a
+  boundary (a merchant constraining its own agents; an agent subcontracting)
+  and insufficient for adjudication against the principal. Never let prose
+  widen past that -- weaken the claim instead.
 
 ## Working Rules
 

@@ -28,9 +28,27 @@ jobs:
       - name: Fail on unraised warnings
         run: python -W error::ResourceWarning -m unittest discover -s tests -t .
 
+      - name: Install as a package
+        # The README tells a reader to `pip install -e .`, so that has to work
+        # on every supported version rather than only on the author's machine.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .
+          python -c "import mandate_gate, mandate_gate.adapters, mandate_gate.attack, mandate_gate.buyer, mandate_gate.harness"
+
       - name: Regenerate the coverage table
-        # The README table is generated, not typed. If this drifts, the docs lie.
+        # The README table is generated, not typed. tests/test_readme.py asserts
+        # the committed copy matches this output; running it here catches a
+        # generator that has stopped working at all.
         run: python tools/gen_coverage.py
+
+      - name: The README figure must still match the code
+        # The figure is measured by charging a rail and a gate. If the gate's
+        # behaviour changes, the committed SVG is stale and the README is
+        # showing a result the code no longer produces.
+        run: |
+          python tools/gen_hero.py
+          git diff --exit-code -- docs/hero.svg
 
       - name: Adversarial harness must pass its integrity preflight
         run: python tools/run_harness.py

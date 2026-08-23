@@ -1,0 +1,47 @@
+# The project calls itself a library, so it has to be installable as one.
+# Until this file existed the only way to use it was to clone the repo and sit
+# inside it, which is a strange thing to ask of a merchant whose own argument
+# is that this policy layer belongs to them.
+#
+# No dependencies, and none optional. The model attacker and the AI buyer speak
+# OpenAI-compatible HTTP over urllib on purpose: a project whose thesis is that
+# rails disagree should not hard-wire one vendor's SDK, and a core that stays
+# stdlib-only can be dropped into a payments path without a supply-chain
+# conversation.
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "as-presented"
+version = "0.1.0"
+description = "The constraints a payment mandate cannot express, enforced and evidenced."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Aarohi Mathur" }]
+keywords = ["payments", "mandate", "upi", "agent", "ap2", "authorization"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.9",
+  "Topic :: Office/Business :: Financial",
+  "Topic :: Security",
+]
+dependencies = []
+
+[project.urls]
+Source = "https://github.com/aarohim24/aspresented"
+
+[tool.setuptools]
+# Listed rather than auto-discovered: `tools`, `probes` and `evidence` are the
+# repository, not the library, and a find-directive would sweep them in.
+packages = [
+  "mandate_gate",
+  "mandate_gate.adapters",
+  "mandate_gate.attack",
+  "mandate_gate.buyer",
+  "mandate_gate.harness",
+]
