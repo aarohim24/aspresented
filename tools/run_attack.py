@@ -44,28 +44,14 @@ from mandate_gate.attack import (Fuzzer, ModelAttacker,           # noqa: E402
                                  ReplayAttacker, run)
 from mandate_gate.attack.model import (DEFAULT_MODEL,              # noqa: E402
                                        GROQ_BASE_URL)
-from mandate_gate.charge import REFUSAL_CODES, Intent             # noqa: E402
-from mandate_gate.envelope import (Limits, MandateEnvelope, Scope,  # noqa: E402
-                                   Window)
-
-T0 = 1_700_000_000
-HOUR = 3600
-CEILING = 500
+from mandate_gate.attack.scenario import (CEILING, INTENTS,        # noqa: E402
+                                          MANDATE_ID, POLICY, T0,
+                                          envelope as build_envelope)
+from mandate_gate.charge import REFUSAL_CODES                     # noqa: E402
+from mandate_gate.envelope import Limits                          # noqa: E402
 
 SECRET = os.environ.get("MANDATE_GATE_INTENT_SECRET",
                         "DEMO-ONLY-not-a-secret-attack").encode()
-
-#: The rail as verified: a per-charge ceiling and an expiry, nothing more.
-RAIL = Limits(per_charge_max=CEILING, expires_at=T0 + 86_400 * 30)
-
-#: What the merchant adds. The attacker cannot see this.
-POLICY = Limits(
-    cumulative_max=2000,
-    max_charges=6,
-    rate_limit=Window(seconds=HOUR, max_charges=4),
-    scope=Scope(merchants=frozenset({"shop-a", "shop-b"})),
-    requires_intent_binding=True,
-)
 
 
 def main() -> int:
@@ -97,15 +83,10 @@ def main() -> int:
         args.tempos = ([1200] if args.attacker in ("model", "replay")
                        else [0, 600, 1200, 4000, 86_400])
 
-    envelope = MandateEnvelope(
-        mandate_id="token_attack", source="razorpay-upi-autopay",
-        subject="cust_attack", rail=RAIL, policy=POLICY)
-
-    intents = (
-        Intent(intent_id="int_weekly", mandate_id="token_attack",
-               max_amount=CEILING, expires_at=T0 + 6 * HOUR,
-               merchant="shop-a"),
-    )
+    # Imported, not redefined: a transcript recorded against one scenario and
+    # replayed against another silently produces different numbers.
+    envelope = build_envelope()
+    intents = INTENTS
 
     print("\n" + "=" * 70)
     print("  ADVERSARIAL SWEEP")
@@ -143,7 +124,7 @@ def main() -> int:
 
     def make_attacker():
         if args.attacker == "fuzzer":
-            return Fuzzer("token_attack", random.Random(args.seed),
+            return Fuzzer(MANDATE_ID, random.Random(args.seed),
                           ceiling_hint=CEILING)
         if args.attacker == "model":
             kwargs = {}
@@ -151,9 +132,9 @@ def main() -> int:
                 kwargs["base_url"] = args.base_url
             if args.model:
                 kwargs["model"] = args.model
-            return ModelAttacker(mandate_id="token_attack", **kwargs)
+            return ModelAttacker(mandate_id=MANDATE_ID, **kwargs)
         with open(args.transcript) as fh:
-            return ReplayAttacker(mandate_id="token_attack",
+            return ReplayAttacker(mandate_id=MANDATE_ID,
                                   transcript=json.load(fh)["calls"])
 
     all_violations, all_codes, best = [], set(), 0
