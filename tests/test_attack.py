@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import pathlib
 import random
 import tempfile
 import unittest
@@ -774,3 +775,72 @@ class TestRecoverableJsonModeFailures(unittest.TestCase):
         self.assertTrue(any("response_format" in b for b in bodies))
         self.assertFalse("response_format" in bodies[-1],
                          "kept sending response_format after two failures")
+
+
+class TestTheRecordedRunStillReproduces(unittest.TestCase):
+    """
+    Guards the figures published in the README.
+
+    A model run has no seed, so the only thing that makes its result checkable
+    is the committed transcript. Replaying it here means the numbers in the
+    documentation cannot drift from the code silently: change the gate, and
+    either the recorded run produces different figures and this test fails, or
+    it does not and the claim still holds.
+    """
+
+    TRANSCRIPT = (pathlib.Path(__file__).resolve().parent.parent
+                  / "evidence" / "model-attack-transcript.json")
+
+    def setUp(self):
+        if not self.TRANSCRIPT.exists():
+            self.skipTest("no recorded model run committed")
+
+    def replay(self):
+        """
+        Replays against the *recorded* scenario, imported rather than
+        redefined. A first version of this test built its own mandate and
+        extracted zero, because every proposal referenced an intent id that did
+        not exist there -- which is exactly how committed evidence stops
+        reproducing.
+        """
+        from mandate_gate.attack.model import ReplayAttacker
+        from mandate_gate.attack import scenario
+
+        with open(self.TRANSCRIPT) as fh:
+            calls = json.load(fh)["calls"]
+        return run(scenario.envelope(),
+                   ReplayAttacker(mandate_id=scenario.MANDATE_ID,
+                                  transcript=calls),
+                   secret=SECRET, intents=scenario.INTENTS, budget=40,
+                   start_time=scenario.T0, seconds_per_attempt=1200)
+
+    def test_it_reaches_the_cap_without_crossing_it(self):
+        from mandate_gate.attack import scenario
+        result = self.replay()
+        self.assertEqual(result.extracted, scenario.POLICY.cumulative_max,
+                         "the published figure was exactly the cap")
+        self.assertTrue(result.clean,
+                        [v.detail for v in result.violations])
+
+    def test_it_is_deterministic(self):
+        first, second = self.replay(), self.replay()
+        self.assertEqual((first.extracted, first.allowed, first.coverage),
+                         (second.extracted, second.allowed, second.coverage))
+
+    def test_the_transcript_records_the_prompt_it_was_given(self):
+        """The evidence that the attacker never saw the merchant's policy."""
+        with open(self.TRANSCRIPT) as fh:
+            calls = json.load(fh)["calls"]
+        self.assertTrue(calls)
+        prompts = [c.get("prompt") for c in calls if c.get("prompt")]
+        self.assertTrue(prompts, "no prompt recorded")
+        for prompt in prompts:
+            for leak in ("cumulative_max", "max_charges", "rate_limit",
+                         "requires_intent_binding"):
+                self.assertNotIn(leak, prompt,
+                                 f"policy leaked into the prompt: {leak}")
+
+    def test_the_transcript_carries_no_credential(self):
+        raw = self.TRANSCRIPT.read_text()
+        self.assertNotIn("gsk_", raw)
+        self.assertNotIn("Bearer ", raw)

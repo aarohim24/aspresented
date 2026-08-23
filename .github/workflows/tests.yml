@@ -35,6 +35,13 @@ jobs:
       - name: Adversarial harness must pass its integrity preflight
         run: python tools/run_harness.py
 
+      - name: Recorded model run must still reproduce
+        # The README publishes figures from a live model run. A model run has no
+        # seed, so the committed transcript is the only thing that makes them
+        # checkable -- replaying it here means the documented result cannot
+        # drift from the code silently.
+        run: python tools/run_attack.py --attacker replay --budget 40
+
       - name: Adversarial sweep must find no invariant violation
         # Exits non-zero when the oracle finds the gate allowed an invariant to
         # be broken. A regression that lets value escape fails the build.
