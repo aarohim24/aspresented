@@ -18,10 +18,11 @@ stays dependency-free.
 ## Quick Start
 
 ```bash
-python3 -W error::ResourceWarning -m unittest discover -s tests -t .  # 167 tests
+python3 -W error::ResourceWarning -m unittest discover -s tests -t .  # 209 tests
 python3 tools/run_harness.py        # integrity preflight, then held-out scores
 python3 tools/gen_coverage.py       # regenerate the README coverage table
 python3 tools/run_attack.py          # adversarial sweep + invariant oracle
+python3 tools/run_buyer.py           # an AI buyer shopping end to end
 python3 tools/serve.py              # console at http://127.0.0.1:8700
 
 export RZP_KEY_ID=rzp_test_... RZP_KEY_SECRET=...
@@ -41,6 +42,9 @@ native mandate JSON
 
 attack/  an attacker sees only what a mandate holder sees; the gate decides;
          invariants.check judges the finished ledger independently
+buyer/   a person's instruction -> a signed, clamped intent -> shopping ->
+         refusals read and acted on. Catalogue text is untrusted input.
+llm.py   shared OpenAI-compatible chat client for both
 ```
 
 - **Owns:** the constraint vocabulary, policy evaluation, the decision log, and
@@ -128,6 +132,7 @@ Two repo-specific additions:
 | **mandate-invariants** | Touching envelopes, adapters, limits, or anything money-shaped |
 | **adversarial-eval** | Adding an abuse class, a boundary case, or reading harness numbers |
 | **adversarial-attack** | Writing or extending an attacker; reading a sweep |
+| **buying-agent** | Touching the buyer, the catalogue, or intent interpretation |
 | **evidence-integrity** | Touching the ledger, intents, or the adjudicator |
 | **rail-adapter** | Adding support for a new payment rail |
 
