@@ -205,6 +205,10 @@ class ModelAttacker:
     #: Too small truncates the object and the parse fails for no visible reason.
     max_tokens: int = 1200
     json_mode: bool = True
+    #: Extra calls allowed when a reply parses but is unusable -- an amount of
+    #: zero, say. Returning None for that would tell the session the attacker
+    #: was finished, which cost 20 of 30 attempts on the first live run.
+    max_unusable: int = 2
     timeout: int = 45
     max_retries: int = 2
     throttle: float = 2.1            # ~28 req/min, inside Groq's free 30 RPM
@@ -376,9 +380,31 @@ class ModelAttacker:
 
     # --------------------------------------------------------------- propose
     def propose(self, briefing):
+        """
+        One usable charge, or None when the attacker is genuinely finished.
+
+        The distinction matters more than it looks. `None` ends the run, so a
+        single unusable generation used to retire the attacker mid-sweep -- on
+        the first live run the model answered `amount: 0` on its eleventh call
+        and the remaining twenty attempts were never made.
+
+        So an unusable reply is retried, up to `max_unusable`. A refusal or a
+        transport failure is not: both repeat, and spending a free-tier call to
+        watch them repeat is waste.
+        """
         if not self.api_key:
             return None
 
+        for _ in range(self.max_unusable + 1):
+            request, retryable = self._propose_once(briefing)
+            if request is not None:
+                return request
+            if not retryable:
+                return None
+        return None
+
+    def _propose_once(self, briefing):
+        """Returns (request_or_None, worth_retrying)."""
         messages = [{"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": self._render(briefing)}]
         text, finish, error = self._ask(messages)
@@ -408,15 +434,21 @@ class ModelAttacker:
         self.calls.append(Call(prompt=messages[-1], raw=_redact(text or ""),
                                parsed=parsed, error=error,
                                finish_reason=finish))
+
         if parsed is None:
-            return None
+            # A refusal or a transport fault will say the same thing next time.
+            # Malformed output might not.
+            terminal = (_looks_like_refusal(text)
+                        or "HTTP" in (error or "")
+                        or "retries exhausted" in (error or ""))
+            return None, not terminal
 
         amount = _as_int(parsed.get("amount"))
         if amount is None or amount <= 0:
             self.calls[-1].error = (
                 f"unusable amount {parsed.get('amount')!r}; expected a "
                 f"positive integer number of paise")
-            return None
+            return None, True          # a fresh generation may well be fine
 
         return ChargeRequest(
             mandate_id=self.mandate_id,          # never taken from the model
@@ -426,7 +458,7 @@ class ModelAttacker:
             merchant=parsed.get("merchant") or None,
             category=parsed.get("category") or None,
             claimed_at=_as_int(parsed.get("claimed_at")),
-        )
+        ), True
 
     # ------------------------------------------------------------ transcript
     def transcript(self) -> list:

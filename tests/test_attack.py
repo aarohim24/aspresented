@@ -653,3 +653,59 @@ class TestResponseEnvelope(unittest.TestCase):
                          "finish_reason": "stop"}]})
         self.assertEqual(text, '{"amount": 2}')
         self.assertIsNone(error)
+
+
+class TestUnusableReplyDoesNotRetireTheAttacker(unittest.TestCase):
+    """
+    Regression for a live run: budget 30 produced 10 attempts. The model
+    answered `amount: 0` on its eleventh call, `propose` returned None, and the
+    session read that as "finished" -- discarding twenty attempts of budget on
+    one bad generation.
+    """
+
+    def attacker(self, replies, **kw):
+        from mandate_gate.attack.model import ModelAttacker
+        a = ModelAttacker(mandate_id="m", api_key="x", throttle=0, **kw)
+        queue = list(replies)
+
+        def fake_ask(messages):
+            return queue.pop(0) if queue else ("", "stop", None)
+        a._ask = fake_ask
+        return a
+
+    def test_an_unusable_amount_is_retried(self):
+        a = self.attacker([('{"amount": 0}', "stop", None),
+                           ('{"amount": 450}', "stop", None)])
+        req = a.propose(Briefing(mandate={}))
+        self.assertIsNotNone(req, "gave up after one unusable reply")
+        self.assertEqual(req.amount, 450)
+        self.assertEqual(len(a.calls), 2)
+
+    def test_retries_are_bounded(self):
+        a = self.attacker([('{"amount": 0}', "stop", None)] * 10,
+                          max_unusable=2)
+        self.assertIsNone(a.propose(Briefing(mandate={})))
+        self.assertEqual(len(a.calls), 3)      # the first, plus two retries
+
+    def test_a_refusal_is_not_retried(self):
+        """It will say the same thing again, and a free-tier call is not free."""
+        a = self.attacker([("I'm sorry, but I can't help.", "stop", None)] * 5)
+        self.assertIsNone(a.propose(Briefing(mandate={})))
+        self.assertEqual(len(a.calls), 1)
+
+    def test_a_transport_failure_is_not_retried_here(self):
+        """_ask already retries transport faults; doing it again just burns calls."""
+        a = self.attacker([(None, None, "HTTP 401: rejected")] * 5)
+        self.assertIsNone(a.propose(Briefing(mandate={})))
+        self.assertEqual(len(a.calls), 1)
+
+    def test_malformed_output_is_retried(self):
+        a = self.attacker([("thinking out loud", "stop", None),
+                           ('{"amount": 200}', "stop", None)])
+        self.assertEqual(a.propose(Briefing(mandate={})).amount, 200)
+
+    def test_a_stalled_attacker_still_stops(self):
+        """Bounded, so a persistently broken endpoint cannot spin forever."""
+        a = self.attacker([("", None, None)] * 20, max_unusable=1)
+        self.assertIsNone(a.propose(Briefing(mandate={})))
+        self.assertLessEqual(len(a.calls), 2)
