@@ -206,10 +206,16 @@ def main() -> int:
                        "base_url": args.base_url or GROQ_BASE_URL,
                        "tempos": {k: v for k, v in recorded.items()},
                        "calls": flat}, fh, indent=1)
-        usable = sum(1 for c in flat if c.get("parsed"))
+        # A reply can parse as JSON and still not be a charge -- `amount: 0`
+        # parses fine. Counting parsed JSON overstated this by three on a live
+        # run, which is exactly the kind of number nobody checks.
+        became_charge = sum(1 for c in flat
+                            if c.get("parsed") and not c.get("error"))
+        parsed_json = sum(1 for c in flat if c.get("parsed"))
         print(f"\n  transcript written to {args.transcript}")
-        print(f"  {usable}/{len(flat)} exchanges parsed into a charge. Commit "
-              f"it; --attacker replay then reproduces this run with no "
+        print(f"  {became_charge}/{len(flat)} exchanges became a charge "
+              f"({parsed_json} parsed as JSON; the rest were unusable). "
+              f"Commit it; --attacker replay reproduces this run with no "
               f"credentials.")
         errors = [c["error"] for c in flat if c.get("error")]
         if errors:

@@ -214,6 +214,7 @@ class ModelAttacker:
     throttle: float = 2.1            # ~28 req/min, inside Groq's free 30 RPM
     calls: list = field(default_factory=list)
     _last_call: float = 0.0
+    _json_failures: int = 0
 
     NAME = "model"
 
@@ -284,13 +285,28 @@ class ModelAttacker:
                 return content, finish, None
             except urllib.error.HTTPError as exc:
                 detail = _redact(exc.read().decode()[:300])
-                # An endpoint that does not know response_format says so with a
-                # 400. Drop it once and remember, rather than failing the run.
-                if (exc.code == 400 and self.json_mode
-                        and "response_format" in detail.lower()):
-                    self.json_mode = False
-                    body.pop("response_format", None)
-                    continue
+                # Two different 400s, both about JSON mode, both recoverable.
+                #
+                #   "response_format" -- the endpoint does not know the
+                #       parameter. Drop it and remember.
+                #   "failed to validate json" -- the endpoint knows it, but this
+                #       particular generation did not satisfy it. Groq returns
+                #       this and it ended a live run at call 18 of 30, because
+                #       any HTTP error was being treated as terminal. Retry,
+                #       and fall back to free-form if it keeps happening.
+                low = detail.lower()
+                if exc.code == 400 and self.json_mode:
+                    if "response_format" in low:
+                        self.json_mode = False
+                        body.pop("response_format", None)
+                        continue
+                    if "validate json" in low or "failed_generation" in low:
+                        self._json_failures += 1
+                        if self._json_failures >= 2:
+                            self.json_mode = False
+                            body.pop("response_format", None)
+                        if attempt < self.max_retries:
+                            continue
                 # 429 is expected on a free tier; back off and retry.
                 if exc.code == 429 and attempt < self.max_retries:
                     time.sleep(5 * (attempt + 1))
@@ -438,9 +454,13 @@ class ModelAttacker:
         if parsed is None:
             # A refusal or a transport fault will say the same thing next time.
             # Malformed output might not.
+            err = (error or "").lower()
+            recoverable_http = ("validate json" in err
+                                or "failed_generation" in err
+                                or "http 5" in err)
             terminal = (_looks_like_refusal(text)
-                        or "HTTP" in (error or "")
-                        or "retries exhausted" in (error or ""))
+                        or ("http" in err and not recoverable_http)
+                        or "retries exhausted" in err)
             return None, not terminal
 
         amount = _as_int(parsed.get("amount"))

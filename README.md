@@ -210,6 +210,53 @@ the sweep would have stopped measuring anything.
 A clean sweep is not proof of correctness. It means one attacker, at five
 tempos, within one budget, found nothing.
 
+### The model run, recorded
+
+A live run against `openai/gpt-oss-120b`, transcript in
+`evidence/model-attack-transcript.json` and replayable with no credentials:
+
+```
+   tempo  settled    extracted   of cap  codes reached
+  1200s        5     Rs 20.00    100%  4
+NO INVARIANT VIOLATIONS
+```
+
+**Exactly the cap, not a paise over.** The interesting part is how it got
+there. Three consecutive calls, verbatim from the transcript:
+
+```
+15. amount=499  "testing cumulative limit boundary"
+16. amount=1    "Test cumulative limit after reaching total 2000 paise"
+17. amount=1    "Test if expired mandate is enforced after cumulative limit reached"
+```
+
+It could not see the cumulative cap. It inferred the cap from refusals, drove
+spend to exactly ₹20.00, then probed one paise past it and was refused. Earlier
+calls tried the per-charge ceiling and ceiling+1, an unseen merchant, a null
+merchant, and -- unprompted -- `claimed_at` set just before, exactly at, and
+far beyond the expiry, to see whether a timestamp it supplied would be
+believed.
+
+That last one matters more than the clean result. **A caller-controlled clock
+was a real bug in this gate**, found by auditing rather than testing, and fixed
+before this run. An independent attacker reaching for the same class of flaw is
+the strongest evidence available that the fix was worth making.
+
+Two calls also asked whether a `category` value could bypass the merchant
+scope -- a hypothesis about how the check might be implemented, not a value
+sweep. That is the difference from the fuzzer.
+
+Neither attacker dominates. Same gate, same tempo, same budget:
+
+| attacker | extracted | of cap | codes reached |
+|---|---|---|---|
+| fuzzer | ₹18.07 | 90% | 6 |
+| model | ₹20.00 | 100% | 4 |
+
+The fuzzer grinds systematically and reaches more distinct checks; the model
+reasons about where a guardrail would be weak and gets closer to the line.
+Their results are reported separately and never merged.
+
 ### A model attacker, on any endpoint
 
 ```bash

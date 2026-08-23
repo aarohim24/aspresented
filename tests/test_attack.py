@@ -1,3 +1,5 @@
+import io
+import json
 import os
 import random
 import tempfile
@@ -709,3 +711,66 @@ class TestUnusableReplyDoesNotRetireTheAttacker(unittest.TestCase):
         a = self.attacker([("", None, None)] * 20, max_unusable=1)
         self.assertIsNone(a.propose(Briefing(mandate={})))
         self.assertLessEqual(len(a.calls), 2)
+
+
+class TestRecoverableJsonModeFailures(unittest.TestCase):
+    """
+    A live run ended at call 18 of a 30 budget. Groq returned
+    `400 Failed to validate JSON` -- its own JSON mode rejecting one
+    generation -- and any HTTP error was being read as terminal.
+    """
+
+    def test_a_json_validation_400_is_worth_retrying(self):
+        from mandate_gate.attack.model import ModelAttacker
+        a = ModelAttacker(mandate_id="m", api_key="x", throttle=0)
+        replies = [
+            (None, None, 'HTTP 400: {"error":"Failed to validate JSON"}'),
+            ('{"amount": 300}', "stop", None),
+        ]
+        a._ask = lambda messages: replies.pop(0)
+        req = a.propose(Briefing(mandate={}))
+        self.assertIsNotNone(req, "gave up on a recoverable 400")
+        self.assertEqual(req.amount, 300)
+
+    def test_a_rejected_key_is_still_terminal(self):
+        from mandate_gate.attack.model import ModelAttacker
+        a = ModelAttacker(mandate_id="m", api_key="x", throttle=0)
+        a._ask = lambda messages: (None, None, "HTTP 401: invalid_api_key")
+        self.assertIsNone(a.propose(Briefing(mandate={})))
+        self.assertEqual(len(a.calls), 1, "retried a rejected key")
+
+    def test_a_server_error_is_worth_retrying(self):
+        from mandate_gate.attack.model import ModelAttacker
+        a = ModelAttacker(mandate_id="m", api_key="x", throttle=0)
+        replies = [(None, None, "HTTP 503: upstream unavailable"),
+                   ('{"amount": 120}', "stop", None)]
+        a._ask = lambda messages: replies.pop(0)
+        self.assertEqual(a.propose(Briefing(mandate={})).amount, 120)
+
+    def test_repeated_json_failures_fall_back_to_free_form(self):
+        """Two strikes and the parameter is dropped rather than fought."""
+        import urllib.error
+        import urllib.request
+
+        from mandate_gate.attack.model import ModelAttacker
+
+        a = ModelAttacker(mandate_id="m", api_key="x", throttle=0,
+                          max_retries=3)
+        bodies = []
+
+        def fake_urlopen(req, *args, **kw):
+            bodies.append(json.loads(req.data.decode()))
+            raise urllib.error.HTTPError(
+                "u", 400, "Bad Request", {},
+                io.BytesIO(b'{"error":"Failed to validate JSON"}'))
+
+        real = urllib.request.urlopen
+        urllib.request.urlopen = fake_urlopen
+        try:
+            a._ask([{"role": "user", "content": "x"}])
+        finally:
+            urllib.request.urlopen = real
+
+        self.assertTrue(any("response_format" in b for b in bodies))
+        self.assertFalse("response_format" in bodies[-1],
+                         "kept sending response_format after two failures")
