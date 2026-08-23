@@ -35,6 +35,13 @@ jobs:
       - name: Adversarial harness must pass its integrity preflight
         run: python tools/run_harness.py
 
+      - name: An AI buyer must be able to shop through the gate
+        # The other half of the question the attackers ask. A guardrail that
+        # stops fraud and also stops legitimate purchases is not a guardrail,
+        # it is an outage -- and this exits non-zero if an injected charge ever
+        # settles beyond the signed intent.
+        run: python tools/run_buyer.py
+
       - name: Recorded model run must still reproduce
         # The README publishes figures from a live model run. A model run has no
         # seed, so the committed transcript is the only thing that makes them
