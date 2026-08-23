@@ -226,8 +226,8 @@ def main() -> int:
             if errs:
                 print(f"\n  {len(errs)} model call(s) failed. First:")
                 print(f"    {errs[0]}")
-                print("  A 401 or 403 means the key was rejected; 429 means the")
-                print("  free tier's rate limit. Neither is a finding.")
+                print("  None of these is a finding -- the error text above")
+                print("  says which layer refused and what to do about it.")
         print()
         return 2
 

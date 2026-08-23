@@ -439,3 +439,43 @@ class TestModelAuditFixes(unittest.TestCase):
             self.assertIsInstance(getattr(cls, "NAME"), str, cls.__name__)
             self.assertNotIn("NAME", getattr(cls, "__dataclass_fields__", {}),
                              f"{cls.__name__}.NAME should not be a field")
+
+
+class TestTransportHeaders(unittest.TestCase):
+    """
+    Regression for a live failure: Groq sits behind Cloudflare, which rejects
+    urllib's default "Python-urllib/3.x" signature with `403 error code: 1010`
+    before the request reaches the API. It looks exactly like a bad key.
+    """
+
+    def test_a_real_user_agent_is_always_sent(self):
+        import ssl
+        import urllib.request
+
+        from mandate_gate.attack.model import USER_AGENT, ModelAttacker
+
+        captured = {}
+
+        def fake_urlopen(req, *a, **kw):
+            captured["headers"] = dict(req.header_items())
+            raise RuntimeError("stop before the network")
+
+        real = urllib.request.urlopen
+        urllib.request.urlopen = fake_urlopen
+        try:
+            ModelAttacker(mandate_id="m", api_key="x", throttle=0,
+                          max_retries=0)._ask([{"role": "user", "content": "hi"}])
+        finally:
+            urllib.request.urlopen = real
+            del ssl
+
+        headers = {k.lower(): v for k, v in captured["headers"].items()}
+        self.assertIn("user-agent", headers)
+        self.assertEqual(headers["user-agent"], USER_AGENT)
+        self.assertNotIn("python-urllib", headers["user-agent"].lower())
+
+    def test_a_cloudflare_block_is_not_reported_as_a_bad_key(self):
+        from mandate_gate.attack.model import _explain
+        self.assertIn("not your key", _explain(403, "error code: 1010"))
+        self.assertIn("rejected", _explain(401, '{"error":"invalid_api_key"}'))
+        self.assertIn("rate limited", _explain(429, "slow down"))

@@ -43,6 +43,15 @@ from ..charge import ChargeRequest
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 DEFAULT_MODEL = "openai/gpt-oss-120b"
 
+#: Always send a real User-Agent.
+#:
+#: urllib defaults to "Python-urllib/3.x", and Groq sits behind Cloudflare,
+#: which rejects that signature with `403 error code: 1010` -- before the
+#: request reaches Groq at all. The failure is indistinguishable from a bad
+#: key unless you know the code is Cloudflare's: with any real UA the same
+#: invalid key returns a clean `401 invalid_api_key`.
+USER_AGENT = "as-presented/0.1 (+https://github.com/aarohim24/aspresented)"
+
 #: Token-shaped strings, redacted before an error reaches a transcript. Error
 #: bodies sometimes echo the credential that failed, and transcripts get
 #: committed.
@@ -64,6 +73,28 @@ def _redact(text: str) -> str:
     key to a public repository.
     """
     return _KEY_SHAPED.sub("<redacted>", text or "")
+
+
+def _explain(status: int, body: str) -> str:
+    """
+    Say what a status actually means, because guessing wastes the reader's time.
+
+    A 403 carrying a Cloudflare code is an edge block on the client signature,
+    not a rejected credential -- and telling someone their key is bad when it
+    is not sends them off to regenerate a working key.
+    """
+    if "1010" in body or "cloudflare" in body.lower():
+        return ("  <- edge block on the client signature, not your key. "
+                "Check the User-Agent header is being sent.")
+    if status in (401, 403):
+        return "  <- the key was rejected."
+    if status == 429:
+        return "  <- rate limited; the free tier allows about 30 requests/min."
+    if status == 404:
+        return "  <- check --model; the id may be retired."
+    if status >= 500:
+        return "  <- provider-side; retrying later is reasonable."
+    return ""
 
 SYSTEM_PROMPT = """\
 You are red-teaming a merchant's payment guardrail. You hold a payment mandate \
@@ -139,6 +170,7 @@ class ModelAttacker:
             data=json.dumps(body).encode(), method="POST")
         req.add_header("Authorization", f"Bearer {self.api_key}")
         req.add_header("Content-Type", "application/json")
+        req.add_header("User-Agent", USER_AGENT)
         with urllib.request.urlopen(
                 req, context=ssl.create_default_context(),
                 timeout=self.timeout) as r:
@@ -163,7 +195,7 @@ class ModelAttacker:
                 if exc.code == 429 and attempt < self.max_retries:
                     time.sleep(5 * (attempt + 1))
                     continue
-                return None, f"HTTP {exc.code}: {detail}"
+                return None, f"HTTP {exc.code}: {detail}{_explain(exc.code, detail)}"
             except Exception as exc:
                 if attempt < self.max_retries:
                     time.sleep(2)
