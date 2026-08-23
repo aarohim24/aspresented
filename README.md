@@ -316,6 +316,72 @@ The split is **stratified by scenario family**. A plain shuffle dropped an
 entire abuse class out of the holdout during development, and the report
 omitted it silently rather than scoring it.
 
+## An agent hiring another agent
+
+```bash
+python3 tools/run_delegation.py
+```
+
+Every mandate examined here is a single flat grant: you hold it or you do not.
+That was tolerable while a person held it. It stops being tolerable the moment
+agents subcontract -- and they already do. A shopping agent calls a delivery
+agent, an orchestrator fans work to workers, a tool calls a tool.
+
+**Today the only way to let a sub-agent spend is to hand over the whole
+credential.** There is no way to hand over less.
+
+An `Authority` is a chain of caveats over a mandate, signed by chaining HMACs
+the way macaroons do:
+
+```
+1. principal issues
+   per_charge<=500 AND total<=2000 AND merchant_in[shop-a,shop-b] AND expires
+
+2. shopping agent narrows for a delivery agent
+   adds: per_charge<=200, merchant_in[shop-a]
+   no root secret used, no round trip to the principal
+
+3. delivery agent narrows again before calling a tool
+   adds: max_charges<=3
+
+   150 at shop-a -> allowed
+   400 at shop-a -> REFUSED [PER_CHARGE_EXCEEDED]   inside the principal's
+                                                     500, outside its own 200
+   100 at shop-b -> REFUSED [SCOPE_VIOLATION]        inside the principal's
+                                                     scope, outside its own
+```
+
+**Narrowing needs no secret.** Each link is keyed on the previous signature, so
+any holder can add a restriction offline. That is what makes delegation possible
+mid-task.
+
+**Widening fails three ways.** Drop a caveat and the chain stops verifying. Edit
+one and it stops verifying. Append a *looser* caveat and it does nothing at all,
+because folding takes the tighter value -- the same intersect-and-minimise logic
+that `effective` once had backwards. Attenuation is safe here precisely because
+that bug was fixed.
+
+The gate did not change. Authority folds into `Limits`, and limits are what it
+already enforced.
+
+**What this does not do**, stated plainly and asserted by a test so the claim
+cannot quietly widen: verification needs the root secret, so a merchant holding
+it can still forge an authority outright. Macaroons do not solve that, and this
+does not either. It makes *delegation between holders* trustworthy; it does not
+make *issuance* provable to a third party. That needs asymmetric signing.
+
+### Building it found a bug worth the trip
+
+Attenuating a per-charge ceiling is the most obvious caveat there is, and it did
+nothing. `effective.per_charge_max` had been computed correctly all along and
+**no check ever consulted it** -- a policy narrowing the per-charge ceiling was
+silently unenforced on a money path.
+
+Nothing caught it because no scenario ever set one. The rail sets its own
+ceiling and enforces it, the policy tier never narrowed it, and the gap sat
+between two things that each worked. The harness now sets a policy ceiling below
+the rail's, charges one paise above it and exactly on it, so it cannot reopen.
+
 ## An AI buyer, end to end
 
 ```bash
@@ -517,6 +583,7 @@ mandate_gate/
     razorpay_upi.py      wired to live test-mode API
     ap2.py               fixture-verified mapper
     card_on_file.py      fixture-verified mapper
+  authority.py           caveat chains: narrow offline, never widen
   llm.py                 shared chat client: transport, redaction, parsing
   buyer/
     catalogue.py         merchant text, unsanitised on purpose
@@ -537,11 +604,12 @@ tools/gen_coverage.py    regenerates the coverage table
 tools/run_harness.py     integrity preflight, then held-out score
 tools/run_attack.py      adversarial sweep, judged by the invariant oracle
 tools/run_buyer.py       an AI buyer shopping end to end
+tools/run_delegation.py  an agent hiring an agent, without the wallet
 evidence/                live API findings
   adjudicate.py          dispute-time verdicts, from the ledger alone
 tools/serve.py           local console (stdlib http.server)
   fixtures.py            canonical sample mandates, with provenance
-tests/                   209 tests, stdlib only
+tests/                   235 tests, stdlib only
 ```
 
 The ledger is a tamper-evident local log, not a blockchain, and claims nothing
@@ -555,10 +623,11 @@ No dependencies beyond the standard library. Python 3.9 or newer -- 3.9 is the
 floor because that is what a stock macOS toolchain ships.
 
 ```bash
-python3 -W error::ResourceWarning -m unittest discover -s tests -t .   # 209 tests
+python3 -W error::ResourceWarning -m unittest discover -s tests -t .   # 235 tests
 python3 tools/run_harness.py                                           # scores
 python3 tools/run_attack.py                                            # sweep
 python3 tools/run_buyer.py                                             # buyer
+python3 tools/run_delegation.py                                        # delegation
 python3 tools/gen_coverage.py                                          # the table
 python3 tools/serve.py                                                 # the console
 ```
@@ -568,6 +637,10 @@ split is deterministic, so the figures above are what you will see.
 
 ## Still to come
 
+- **Asymmetric issuance.** The one named gap in the authority model: a
+  principal signing with a private key so a merchant can verify without being
+  able to forge. Needs a real crypto library, so it is named rather than
+  hand-rolled.
 - **A recorded buyer run** against a live model, committed the way the attack
   transcript is. The scripted client makes the demo deterministic; a live run
   would show whether a model complies with the injection as readily.

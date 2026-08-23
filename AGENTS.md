@@ -18,11 +18,12 @@ stays dependency-free.
 ## Quick Start
 
 ```bash
-python3 -W error::ResourceWarning -m unittest discover -s tests -t .  # 209 tests
+python3 -W error::ResourceWarning -m unittest discover -s tests -t .  # 235 tests
 python3 tools/run_harness.py        # integrity preflight, then held-out scores
 python3 tools/gen_coverage.py       # regenerate the README coverage table
 python3 tools/run_attack.py          # adversarial sweep + invariant oracle
 python3 tools/run_buyer.py           # an AI buyer shopping end to end
+python3 tools/run_delegation.py      # delegation: narrow offline, never widen
 python3 tools/serve.py              # console at http://127.0.0.1:8700
 
 export RZP_KEY_ID=rzp_test_... RZP_KEY_SECRET=...
@@ -63,6 +64,10 @@ llm.py   shared OpenAI-compatible chat client for both
   when it describes a rail.
 - **`MandateEnvelope`** — `rail` + `policy`, with `effective` taking the tighter
   of each field and `unenforced_by_rail` naming what only this layer supplies.
+- **`Authority`** — a chain of caveats over a mandate. Any holder can narrow it
+  offline; nobody can widen it. Folds into `Limits`, so the gate needed no
+  change. Verification needs the root secret, so it secures delegation between
+  holders, not issuance against the merchant.
 - **`Intent`** — what the principal asked for. HMAC-signed; the thing a charge
   must be justified by.
 - **`ChargeRequest` / `Decision` / `Refusal`** — a charge attempt, its outcome,
@@ -83,6 +88,10 @@ llm.py   shared OpenAI-compatible chat client for both
   mirroring the live API. Never widen it to be helpful.
 - **An adapter must never invent a constraint** the rail does not enforce. A
   false `rail` limit makes the gate stand down where it should act.
+- **A policy limit with no check is worse than no limit.** `per_charge_max` sat
+  in `effective` for weeks, computed correctly, consulted by nothing. When you
+  add a field to `Limits`, add the check and a boundary scenario in the same
+  commit.
 - **The server clock is authoritative for policy.** A caller-supplied timestamp
   is untrusted input; using it for rate or expiry decisions is exploitable.
 - **Rail limits, never effective limits, go into `RailSimulator`.** Passing
@@ -133,6 +142,7 @@ Two repo-specific additions:
 | **adversarial-eval** | Adding an abuse class, a boundary case, or reading harness numbers |
 | **adversarial-attack** | Writing or extending an attacker; reading a sweep |
 | **buying-agent** | Touching the buyer, the catalogue, or intent interpretation |
+| **delegated-authority** | Touching authority, caveats, or attenuation |
 | **evidence-integrity** | Touching the ledger, intents, or the adjudicator |
 | **rail-adapter** | Adding support for a new payment rail |
 
