@@ -267,18 +267,18 @@ class TestModelAttacker(unittest.TestCase):
         self.assertNotEqual(default.NAME, other.NAME)
 
     def test_extracts_json_from_prose_and_fences(self):
-        from mandate_gate.attack.model import ModelAttacker as MA
+        from mandate_gate.llm import extract_json
         for text in ('{"amount": 42}',
                      'Sure!\n```json\n{"amount": 42}\n```\n',
                      'I will try {"amount": 42} because boundaries.',
                      'notes {"bad": } then {"amount": 42}'):
-            self.assertEqual(MA._extract_json(text), {"amount": 42}, text)
+            self.assertEqual(extract_json(text), {"amount": 42}, text)
 
     def test_returns_none_on_unusable_output(self):
-        from mandate_gate.attack.model import ModelAttacker as MA
+        from mandate_gate.llm import extract_json
         for text in ("", "no json here", "{}", '{"amount": "lots"}',
                      '{"amount": 0}', '{"amount": -5}'):
-            parsed = MA._extract_json(text)
+            parsed = extract_json(text)
             if parsed is None:
                 continue
             try:
@@ -289,9 +289,9 @@ class TestModelAttacker(unittest.TestCase):
 
     def test_briefing_render_never_leaks_the_policy(self):
         """The prompt is the attacker's whole view. It must not carry policy."""
-        from mandate_gate.attack.model import ModelAttacker as MA
+        from mandate_gate.attack.model import ModelAttacker
         from mandate_gate.attack.session import _mandate_view
-        rendered = MA._render(Briefing(
+        rendered = ModelAttacker._render(Briefing(
             mandate=_mandate_view(envelope()),
             intents=("int_1",), seen_merchants=("shop-a",)))
 
@@ -317,14 +317,14 @@ class TestModelAttacker(unittest.TestCase):
 
     def test_render_bounds_the_prompt(self):
         """History is truncated, or a long run grows the prompt without limit."""
-        from mandate_gate.attack.model import ModelAttacker as MA
+        from mandate_gate.attack.model import ModelAttacker
         b = Briefing(mandate={"per_charge_max": CEILING})
         for i in range(50):
             b.history.append(Attempt(
                 request=ChargeRequest(mandate_id="m", amount=1,
                                       idempotency_key=f"k{i}"),
                 allowed=False, codes=("X",), remediations=()))
-        rendered = MA._render(b)
+        rendered = ModelAttacker._render(b)
         self.assertLess(rendered.count("amount=1 "), 20)
 
 
@@ -396,18 +396,18 @@ class TestModelAuditFixes(unittest.TestCase):
         silently -- indistinguishable from a model with nothing to propose. A
         red-teaming model writes about braces and quotes constantly.
         """
-        from mandate_gate.attack.model import ModelAttacker as MA
+        from mandate_gate.llm import extract_json
         for text in ('{"amount": 42, "rationale": "the } case"}',
                      '{"amount": 42, "rationale": "the { case"}',
                      '{"amount": 42, "rationale": "a \\" } b"}',
                      '```json\n{"amount": 42, "rationale": "{x} and } odd"}\n```'):
-            parsed = MA._extract_json(text)
+            parsed = extract_json(text)
             self.assertIsNotNone(parsed, text)
             self.assertEqual(parsed["amount"], 42, text)
 
     def test_key_shaped_strings_are_redacted(self):
         """Error bodies can echo the credential, and transcripts get committed."""
-        from mandate_gate.attack.model import _redact
+        from mandate_gate.llm import redact as _redact
         # Deliberately unmistakable non-credentials: a secret scanner should
         # not have to judge whether a fixture is live, and nor should a reader.
         for secret in ("gsk_NOT_A_REAL_KEY_00000",
@@ -459,7 +459,8 @@ class TestTransportHeaders(unittest.TestCase):
         import ssl
         import urllib.request
 
-        from mandate_gate.attack.model import USER_AGENT, ModelAttacker
+        from mandate_gate.attack.model import ModelAttacker
+        from mandate_gate.llm import USER_AGENT
 
         captured = {}
 
@@ -482,7 +483,7 @@ class TestTransportHeaders(unittest.TestCase):
         self.assertNotIn("python-urllib", headers["user-agent"].lower())
 
     def test_a_cloudflare_block_is_not_reported_as_a_bad_key(self):
-        from mandate_gate.attack.model import _explain
+        from mandate_gate.llm import explain as _explain
         self.assertIn("not your key", _explain(403, "error code: 1010"))
         self.assertIn("rejected", _explain(401, '{"error":"invalid_api_key"}'))
         self.assertIn("rate limited", _explain(429, "slow down"))
@@ -513,14 +514,14 @@ class TestPromptFraming(unittest.TestCase):
         Not as a parse failure. Reporting "0 parsed" sent the reader hunting a
         parser bug that did not exist.
         """
-        from mandate_gate.attack.model import _looks_like_refusal
+        from mandate_gate.llm import looks_like_refusal as _looks_like_refusal
         for text in ("I’m sorry, but I can’t help with that.",
                      "I cannot help with this request.",
                      "I am unable to assist."):
             self.assertTrue(_looks_like_refusal(text), text)
 
     def test_normal_output_is_not_mistaken_for_a_refusal(self):
-        from mandate_gate.attack.model import _looks_like_refusal
+        from mandate_gate.llm import looks_like_refusal as _looks_like_refusal
         for text in ('{"amount": 500, "rationale": "probing the ceiling"}',
                      '{"amount": 1, "rationale": "I will not exceed the cap"}',
                      ""):
