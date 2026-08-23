@@ -411,7 +411,7 @@ evidence/                live API findings
   adjudicate.py          dispute-time verdicts, from the ledger alone
 tools/serve.py           local console (stdlib http.server)
   fixtures.py            canonical sample mandates, with provenance
-tests/                   151 tests, stdlib only
+tests/                   167 tests, stdlib only
 ```
 
 The ledger is a tamper-evident local log, not a blockchain, and claims nothing
@@ -425,7 +425,7 @@ No dependencies beyond the standard library. Python 3.9 or newer -- 3.9 is the
 floor because that is what a stock macOS toolchain ships.
 
 ```bash
-python3 -W error::ResourceWarning -m unittest discover -s tests -t .   # 151 tests
+python3 -W error::ResourceWarning -m unittest discover -s tests -t .   # 167 tests
 python3 tools/run_harness.py                                           # scores
 python3 tools/run_attack.py                                            # sweep
 python3 tools/gen_coverage.py                                          # the table

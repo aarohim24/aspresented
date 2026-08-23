@@ -405,10 +405,14 @@ class TestModelAuditFixes(unittest.TestCase):
     def test_key_shaped_strings_are_redacted(self):
         """Error bodies can echo the credential, and transcripts get committed."""
         from mandate_gate.attack.model import _redact
-        for secret in ("gsk_abc123XYZdef456", "sk-proj-abcdef123456",
-                       "Bearer abcdef123456789"):
+        # Deliberately unmistakable non-credentials: a secret scanner should
+        # not have to judge whether a fixture is live, and nor should a reader.
+        for secret in ("gsk_NOT_A_REAL_KEY_00000",
+                       "sk-proj-NOT_A_REAL_KEY_0",
+                       "Bearer NOT_A_REAL_KEY_000"):
             self.assertNotIn(secret, _redact(f"rejected: {secret} is invalid"))
-        self.assertIn("<redacted>", _redact("bad key gsk_abcdefgh12345"))
+        self.assertIn("<redacted>",
+                      _redact("bad key gsk_NOT_A_REAL_KEY_00000"))
 
     def test_a_transcript_records_the_prompt_it_was_given(self):
         """
@@ -427,9 +431,9 @@ class TestModelAuditFixes(unittest.TestCase):
         from mandate_gate.attack.model import Call, ModelAttacker
         attacker = ModelAttacker(mandate_id="m", api_key="x", throttle=0)
         attacker.calls.append(Call(prompt={"content": "p"},
-                                   raw="leaked gsk_abcdefgh12345 oops",
+                                   raw="leaked gsk_NOT_A_REAL_KEY_00000 oops",
                                    parsed=None))
-        self.assertNotIn("gsk_abcdefgh12345",
+        self.assertNotIn("gsk_NOT_A_REAL_KEY_00000",
                          attacker.transcript()[0]["raw"])
 
     def test_every_attacker_names_itself_the_same_way(self):
@@ -522,6 +526,130 @@ class TestPromptFraming(unittest.TestCase):
     def test_a_declining_model_surfaces_guidance_not_silence(self):
         from mandate_gate.attack.model import ModelAttacker
         attacker = ModelAttacker(mandate_id="m", api_key="x", throttle=0)
-        attacker._ask = lambda messages: ("I'm sorry, but I can't help.", None)
+        attacker._ask = lambda messages: ("I'm sorry, but I can't help.",
+                                          "stop", None)
         self.assertIsNone(attacker.propose(Briefing(mandate={})))
         self.assertIn("declined", attacker.calls[0].error)
+
+
+class TestNoSilentFailure(unittest.TestCase):
+    """
+    The invariant that took three live runs to learn: whenever `propose`
+    returns None, a reason is recorded. A None with no error sends the reader
+    to the wrong layer -- it happened with a Cloudflare block, with a model
+    refusal, and it would have happened again with a null `content` and with a
+    truncated reply.
+    """
+
+    def attacker(self, reply, finish=None, error=None):
+        from mandate_gate.attack.model import ModelAttacker
+        a = ModelAttacker(mandate_id="m", api_key="x", throttle=0)
+        a._ask = lambda messages: (reply, finish, error)
+        return a
+
+    def cases(self):
+        return [
+            ("empty content", "", None, None),
+            ("null content", None, None, None),
+            ("whitespace only", "   \n  ", None, None),
+            ("truncated json", '{"amount": 500, "rationale": "probing the ce',
+             "length", None),
+            ("prose, no json", "Let me think about this carefully.", "stop", None),
+            ("refusal", "I'm sorry, but I can't help with that.", "stop", None),
+            ("empty object", "{}", "stop", None),
+            ("amount is a bool", '{"amount": true}', "stop", None),
+            ("amount is text", '{"amount": "five hundred"}', "stop", None),
+            ("amount is zero", '{"amount": 0}', "stop", None),
+            ("amount is negative", '{"amount": -50}', "stop", None),
+            ("transport error", None, None, "HTTP 500: upstream"),
+        ]
+
+    def test_every_giving_up_path_records_a_reason(self):
+        for label, reply, finish, error in self.cases():
+            with self.subTest(label):
+                a = self.attacker(reply, finish, error)
+                self.assertIsNone(a.propose(Briefing(mandate={})), label)
+                self.assertTrue(a.calls, f"{label}: nothing recorded")
+                self.assertTrue(a.calls[-1].error,
+                                f"{label}: returned None with no error")
+
+    def test_the_reason_is_specific_not_generic(self):
+        specific = {
+            "truncated json": "truncated",
+            "refusal": "declined",
+            "empty content": "empty",
+            "amount is a bool": "unusable amount",
+        }
+        for label, reply, finish, error in self.cases():
+            if label not in specific:
+                continue
+            with self.subTest(label):
+                a = self.attacker(reply, finish, error)
+                a.propose(Briefing(mandate={}))
+                self.assertIn(specific[label], a.calls[-1].error.lower(), label)
+
+    def test_a_good_reply_records_no_error(self):
+        a = self.attacker('{"amount": 450, "merchant": "shop-a"}', "stop", None)
+        req = a.propose(Briefing(mandate={}))
+        self.assertIsNotNone(req)
+        self.assertEqual(req.amount, 450)
+        self.assertIsNone(a.calls[-1].error)
+
+    def test_the_mandate_id_is_never_taken_from_the_model(self):
+        """An attacker must not be able to charge a mandate it was not given."""
+        a = self.attacker('{"amount": 100, "mandate_id": "someone-elses"}',
+                          "stop", None)
+        self.assertEqual(a.propose(Briefing(mandate={})).mandate_id, "m")
+
+    def test_a_bool_never_becomes_an_amount(self):
+        """isinstance(True, int) is True, so `true` would have become 1."""
+        a = self.attacker('{"amount": true}', "stop", None)
+        self.assertIsNone(a.propose(Briefing(mandate={})))
+
+    def test_a_bool_never_becomes_a_timestamp(self):
+        a = self.attacker('{"amount": 100, "claimed_at": true}', "stop", None)
+        self.assertIsNone(a.propose(Briefing(mandate={})).claimed_at)
+
+
+class TestResponseEnvelope(unittest.TestCase):
+    def post(self, payload):
+        import json as _json
+        import urllib.request
+
+        from mandate_gate.attack.model import ModelAttacker
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return _json.dumps(payload).encode()
+
+        real = urllib.request.urlopen
+        urllib.request.urlopen = lambda *a, **kw: FakeResponse()
+        try:
+            return ModelAttacker(mandate_id="m", api_key="x", throttle=0,
+                                 max_retries=0)._ask([{"role": "user",
+                                                       "content": "x"}])
+        finally:
+            urllib.request.urlopen = real
+
+    def test_a_normal_envelope_yields_content_and_finish_reason(self):
+        text, finish, error = self.post({
+            "choices": [{"message": {"content": '{"amount": 1}'},
+                         "finish_reason": "stop"}]})
+        self.assertEqual(text, '{"amount": 1}')
+        self.assertEqual(finish, "stop")
+        self.assertIsNone(error)
+
+    def test_missing_choices_is_explained_not_a_keyerror(self):
+        text, finish, error = self.post({"error": "content blocked"})
+        self.assertIsNone(text)
+        self.assertIn("no choices", error.lower())
+
+    def test_empty_content_falls_back_to_reasoning_text(self):
+        """Reasoning-style models sometimes leave `content` null."""
+        text, _, error = self.post({
+            "choices": [{"message": {"content": None,
+                                     "reasoning_content": '{"amount": 2}'},
+                         "finish_reason": "stop"}]})
+        self.assertEqual(text, '{"amount": 2}')
+        self.assertIsNone(error)

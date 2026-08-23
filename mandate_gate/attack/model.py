@@ -100,6 +100,21 @@ def _redact(text: str) -> str:
     return _KEY_SHAPED.sub("<redacted>", text or "")
 
 
+def _as_int(value) -> int | None:
+    """
+    Coerce to int, refusing bool.
+
+    `isinstance(True, int)` is True in Python, so a JSON `true` would otherwise
+    become the amount 1 -- a charge the model never proposed.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _explain(status: int, body: str) -> str:
     """
     Say what a status actually means, because guessing wastes the reader's time.
@@ -168,6 +183,7 @@ class Call:
     raw: str
     parsed: dict | None
     error: str | None = None
+    finish_reason: str | None = None
 
 
 @dataclass
@@ -185,6 +201,10 @@ class ModelAttacker:
     model: str = DEFAULT_MODEL
     api_key: str | None = None
     temperature: float = 0.8
+    #: Generous, because a reasoning-style model spends tokens before the JSON.
+    #: Too small truncates the object and the parse fails for no visible reason.
+    max_tokens: int = 1200
+    json_mode: bool = True
     timeout: int = 45
     max_retries: int = 2
     throttle: float = 2.1            # ~28 req/min, inside Groq's free 30 RPM
@@ -202,7 +222,12 @@ class ModelAttacker:
             self.NAME = f"model:{self.model}"
 
     # ------------------------------------------------------------ transport
-    def _post(self, body: dict) -> str:
+    def _post(self, body: dict) -> tuple:
+        """
+        Returns (content, finish_reason). Parses the envelope defensively:
+        a moderation block or gateway error can return 200 with no `choices`,
+        and a bare KeyError tells the reader nothing.
+        """
         req = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=json.dumps(body).encode(), method="POST")
@@ -212,13 +237,38 @@ class ModelAttacker:
         with urllib.request.urlopen(
                 req, context=ssl.create_default_context(),
                 timeout=self.timeout) as r:
-            payload = json.loads(r.read().decode())
-        return payload["choices"][0]["message"]["content"] or ""
+            payload = json.loads(r.read().decode() or "{}")
+
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise ValueError(
+                f"response carried no choices: {_redact(json.dumps(payload))[:200]}")
+
+        first = choices[0] or {}
+        message = first.get("message") or {}
+        content = message.get("content")
+        if not content:
+            # Reasoning-style models sometimes leave `content` empty and put
+            # the text elsewhere. Look before giving up, so an empty reply is
+            # never reported as nothing at all.
+            content = message.get("reasoning_content") or message.get("reasoning")
+        return (content or ""), first.get("finish_reason")
 
     def _ask(self, messages: list) -> tuple:
-        """Returns (text, error). Never raises -- a dead attacker just stops."""
+        """
+        Returns (text, finish_reason, error). Never raises -- a dead attacker
+        stops rather than aborting a sweep.
+
+        JSON mode is requested when the endpoint supports it, which is by far
+        the biggest reliability win available here: the reply arrives as an
+        object instead of prose that has to be scavenged. Endpoints that reject
+        the parameter get one retry without it, and the choice is remembered.
+        """
         body = {"model": self.model, "messages": messages,
-                "temperature": self.temperature, "max_tokens": 400}
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens}
+        if self.json_mode:
+            body["response_format"] = {"type": "json_object"}
 
         for attempt in range(self.max_retries + 1):
             gap = time.monotonic() - self._last_call
@@ -226,20 +276,29 @@ class ModelAttacker:
                 time.sleep(self.throttle - gap)
             self._last_call = time.monotonic()
             try:
-                return self._post(body), None
+                content, finish = self._post(body)
+                return content, finish, None
             except urllib.error.HTTPError as exc:
                 detail = _redact(exc.read().decode()[:300])
+                # An endpoint that does not know response_format says so with a
+                # 400. Drop it once and remember, rather than failing the run.
+                if (exc.code == 400 and self.json_mode
+                        and "response_format" in detail.lower()):
+                    self.json_mode = False
+                    body.pop("response_format", None)
+                    continue
                 # 429 is expected on a free tier; back off and retry.
                 if exc.code == 429 and attempt < self.max_retries:
                     time.sleep(5 * (attempt + 1))
                     continue
-                return None, f"HTTP {exc.code}: {detail}{_explain(exc.code, detail)}"
+                return (None, None,
+                        f"HTTP {exc.code}: {detail}{_explain(exc.code, detail)}")
             except Exception as exc:
                 if attempt < self.max_retries:
                     time.sleep(2)
                     continue
-                return None, f"{type(exc).__name__}: {exc}"
-        return None, "retries exhausted"
+                return None, None, f"{type(exc).__name__}: {_redact(str(exc))}"
+        return None, None, "retries exhausted"
 
     # -------------------------------------------------------------- parsing
     @staticmethod
@@ -322,34 +381,51 @@ class ModelAttacker:
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": self._render(briefing)}]
-        text, error = self._ask(messages)
+        text, finish, error = self._ask(messages)
         parsed = self._extract_json(text) if text else None
-        if parsed is None and error is None and _looks_like_refusal(text):
-            error = ("model declined the task -- the prompt, not the parser. "
-                     "Describe the work accurately: a test harness, synthetic "
-                     "fixtures, a simulated rail, and a guardrail the caller "
-                     "owns and intends to fix.")
-        self.calls.append(Call(prompt=messages[-1], raw=text or "",
-                               parsed=parsed, error=error))
+
+        # Every path that gives up records why. Returning None with no error --
+        # which is what a null `content` and a truncated reply both used to do --
+        # sends the reader hunting a bug in the wrong layer. This has now cost
+        # three live runs, so the rule is structural: no silent None.
+        if parsed is None and error is None:
+            if _looks_like_refusal(text):
+                error = ("model declined the task -- the prompt, not the "
+                         "parser. Describe the work accurately: a test "
+                         "harness, synthetic fixtures, a simulated rail, and a "
+                         "guardrail the caller owns and intends to fix.")
+            elif finish == "length":
+                error = (f"reply truncated at max_tokens={self.max_tokens} "
+                         f"before the JSON closed. Raise max_tokens.")
+            elif not (text or "").strip():
+                error = ("the reply was empty -- no content and no reasoning "
+                         "text. Check the model id supports chat completions.")
+            else:
+                error = (f"no JSON object in the reply "
+                         f"(finish_reason={finish!r}): "
+                         f"{_redact((text or '')[:120])!r}")
+
+        self.calls.append(Call(prompt=messages[-1], raw=_redact(text or ""),
+                               parsed=parsed, error=error,
+                               finish_reason=finish))
         if parsed is None:
             return None
 
-        try:
-            amount = int(parsed.get("amount"))
-        except (TypeError, ValueError):
-            return None
-        if amount <= 0:
+        amount = _as_int(parsed.get("amount"))
+        if amount is None or amount <= 0:
+            self.calls[-1].error = (
+                f"unusable amount {parsed.get('amount')!r}; expected a "
+                f"positive integer number of paise")
             return None
 
-        claimed = parsed.get("claimed_at")
         return ChargeRequest(
-            mandate_id=self.mandate_id,
+            mandate_id=self.mandate_id,          # never taken from the model
             amount=amount,
             idempotency_key=f"md-{len(self.calls):03d}",
             intent_id=parsed.get("intent_id") or None,
             merchant=parsed.get("merchant") or None,
             category=parsed.get("category") or None,
-            claimed_at=int(claimed) if isinstance(claimed, (int, float)) else None,
+            claimed_at=_as_int(parsed.get("claimed_at")),
         )
 
     # ------------------------------------------------------------ transcript
@@ -365,7 +441,8 @@ class ModelAttacker:
         return [{"prompt": c.prompt.get("content"),
                  "raw": _redact(c.raw),
                  "parsed": c.parsed,
-                 "error": c.error}
+                 "error": c.error,
+                 "finish_reason": c.finish_reason}
                 for c in self.calls]
 
 

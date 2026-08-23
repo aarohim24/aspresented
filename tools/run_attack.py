@@ -127,8 +127,13 @@ def main() -> int:
     print("  what it cannot   the merchant's policy, and this repository")
     if args.attacker == "model":
         calls = args.budget * len(args.tempos)
+        # Throttled to stay inside a free tier, so a run takes real time. Say
+        # how long rather than letting it look hung.
+        seconds = calls * 2.1
         print(f"  projected calls  up to {calls} "
               f"({args.budget} x {len(args.tempos)} tempo(s))")
+        print(f"  expected wall    ~{seconds / 60:.1f} min "
+              f"(throttled to stay inside 30 req/min)")
     print()
 
     cap = POLICY.cumulative_max
