@@ -211,6 +211,18 @@ button.mode[aria-pressed=true]{background:var(--volt);border-color:var(--volt);
 .cols{display:grid;grid-template-columns:minmax(240px,.8fr) minmax(320px,1.2fr);
   gap:var(--s6);align-items:start}
 @media (max-width:880px){.cols{grid-template-columns:1fr}}
+/* Phones. The grids already reflow (auto-fit) and the tables already scroll
+   inside their panels, so this is gutters and one affordance: the nav scrolls
+   sideways with its scrollbar hidden, which on a narrow screen reads as "that
+   is all there is". The fade says otherwise. */
+@media (max-width:560px){
+  main{padding:0 var(--s5)}
+  section{padding:var(--s9) 0}
+  .stage{padding:var(--s7) var(--s5)}
+  .navin{padding:0 var(--s5);
+    -webkit-mask-image:linear-gradient(90deg,#000 86%,transparent);
+    mask-image:linear-gradient(90deg,#000 86%,transparent)}
+}
 .chlist{display:flex;flex-direction:column;gap:var(--s3)}
 button.ch{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:var(--s2);
   padding:var(--s5);border:1px solid var(--line);border-radius:8px;
@@ -313,7 +325,7 @@ footer{border-top:1px solid var(--line);padding:var(--s7) 0 var(--s10);
 </section>
 
 <section id="delegation" class="rv">
-  <div class="head"><span class="eyebrow">novel</span>
+  <div class="head"><span class="eyebrow">delegation</span>
     <h2>An agent hiring another agent, without handing over the wallet</h2></div>
   <p>Every mandate examined here is a single flat grant. Tolerable while a person
   held it &mdash; untenable the moment agents subcontract, which they already do.
