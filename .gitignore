@@ -11,6 +11,15 @@ evidence/console-ledger.jsonl
 # Written by probes/probe2_authorize.py -- local session state
 state.json
 
+# Credentials never belong in the repo. Keys are read from the environment --
+# GROQ_API_KEY / OPENAI_API_KEY for the model attacker, RZP_KEY_* for the
+# probes, MANDATE_GATE_INTENT_SECRET for signing. These patterns exist only so
+# an accident cannot become a commit.
+.env
+.env.*
+*.key
+secrets.json
+
 .DS_Store
 .venv/
 venv/
