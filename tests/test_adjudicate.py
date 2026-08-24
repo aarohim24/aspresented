@@ -60,6 +60,39 @@ class TestTheEvidenceGap(AdjTestCase):
         result = self.adj.adjudicate("k1")
         self.assertEqual(result.verdict, AUTHORISED)
 
+    def test_an_intent_the_gate_trusted_from_memory_is_not_evidence(self):
+        """
+        Found by mutation testing: this branch was correct and nothing proved
+        it. `Gate` accepts a pre-populated `intents` dict -- a cache, or state
+        carried across a restart -- so it can authorise against an intent that
+        was never appended to *this* ledger. The charge is legitimate and the
+        chain verifies; there is simply no record of what was approved.
+
+        Which is the whole reason adjudication reads the log and not memory. An
+        adjudicator that consulted the same dict would have called this
+        AUTHORISED and been wrong at exactly the moment it mattered.
+        """
+        env = MandateEnvelope(
+            mandate_id="m1", source="razorpay-upi-autopay", subject="c1",
+            rail=RAIL, policy=Limits(requires_intent_binding=True))
+        path = os.path.join(tempfile.mkdtemp(), "l.jsonl")
+        ledger = Ledger(path, clock=lambda: T0)
+        remembered = Intent(intent_id="i1", mandate_id="m1", max_amount=400,
+                            expires_at=T0 + 3600,
+                            merchant="shop-a").signed(SECRET)
+        gate = Gate(env, ledger, RailSimulator(limits=RAIL), SECRET,
+                    intents={"i1": remembered}, clock=lambda: T0)
+
+        decision = gate.authorize(ChargeRequest(
+            mandate_id="m1", amount=300, idempotency_key="k1",
+            merchant="shop-a", intent_id="i1"))
+        self.assertTrue(decision.allowed)
+
+        result = Adjudicator(ledger, SECRET).adjudicate("k1")
+        self.assertTrue(result.chain_ok)
+        self.assertEqual(result.verdict, UNPROVABLE)
+        self.assertIn("not in the ledger", " ".join(result.reasons))
+
 
 class TestVerdicts(AdjTestCase):
     def bound(self):

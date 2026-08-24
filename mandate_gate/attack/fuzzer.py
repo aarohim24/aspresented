@@ -39,7 +39,7 @@ from __future__ import annotations
 import re
 
 from ..charge import ChargeRequest
-from .base import Briefing        # noqa: F401  (documents the contract)
+from .base import Briefing
 
 #: Merchants a real agent might try that were never authorised.
 UNSEEN_MERCHANTS = ("shop-unlisted", "cash-out-ltd", "")
@@ -182,7 +182,7 @@ class Fuzzer:
             merchant=merchant, category=category)
 
     # -------------------------------------------------------------- driver
-    def propose(self, briefing):
+    def propose(self, briefing: Briefing):
         """
         Rotate through the strategies, skipping any that cannot fire yet.
 

@@ -134,8 +134,14 @@ def main() -> int:
     for step in outcome.steps:
         verdict = "ok " if step.allowed else "REF"
         label = f"{step.sku} x{step.quantity}" if step.sku else "(stopped)"
+        # One code per refusal is the faithful record, and two fields can breach
+        # the same constraint -- an amount and a merchant both mismatching one
+        # intent. Printing INTENT_MISMATCH twice reads as a bug rather than as
+        # two findings, so the display collapses it. The remediations below,
+        # which are per-refusal, still show both.
+        shown = list(dict.fromkeys(step.codes))
         print(f"  {verdict}  {label:<20} {step.amount:>5} paise"
-              + (f"  {','.join(step.codes)}" if step.codes else ""))
+              + (f"  {','.join(shown)}" if shown else ""))
         if step.reasoning:
             print(f"       \"{step.reasoning[:70]}\"")
         for remedy in step.remediations:

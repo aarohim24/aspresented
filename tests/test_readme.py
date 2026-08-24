@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -67,6 +68,62 @@ class TestGeneratedBlocksMatchTheirGenerators(unittest.TestCase):
             self.assertIn(row, readme,
                           "the README coverage table has drifted from "
                           "tools/gen_coverage.py -- regenerate it")
+
+
+class TestPublishedNumbersStillReproduce(unittest.TestCase):
+    """
+    "Every number in this README is reproducible" was true and unchecked, so it
+    stopped being true quietly: the scenario set grew when the per-charge
+    ceiling gained its boundary cases, and the published false-decline
+    denominator, recall counts and blocked value were all stale by the time
+    anyone looked. The same happened to the fuzzer's refusal-code coverage,
+    which read 9/9 after a tenth code existed.
+
+    Both tools are seeded and take under a second, so there is no reason for
+    their headline numbers to live in prose unchecked.
+    """
+
+    @staticmethod
+    def _run(tool: str) -> str:
+        import subprocess
+        import sys
+
+        return subprocess.run([sys.executable, f"tools/{tool}"],
+                              cwd=README.parent, capture_output=True,
+                              text=True, check=True).stdout
+
+    @staticmethod
+    def _flat(text: str) -> str:
+        return " ".join(text.split())
+
+    def test_harness_headline_numbers_are_the_published_ones(self):
+        out = self._run("run_harness.py")
+        readme = self._flat(README.read_text())
+        for key in ("False-decline rate", "Abuse recall",
+                    "Caught by policy/rail", "Value blocked"):
+            line = next((ln for ln in out.splitlines() if key in ln), None)
+            self.assertIsNotNone(line, f"harness no longer reports {key!r}")
+            self.assertIn(self._flat(line), readme,
+                          f"the README's {key!r} has drifted from the harness "
+                          f"-- it now reports: {self._flat(line)!r}")
+
+    def test_sweep_table_and_code_coverage_are_the_published_ones(self):
+        out = self._run("run_attack.py")
+        readme = self._flat(README.read_text())
+
+        rows = [ln for ln in out.splitlines()
+                if re.match(r"\s+\d+s\s+\d+\s", ln)]
+        self.assertEqual(len(rows), 5, "the sweep no longer runs five tempos")
+        for row in rows:
+            self.assertIn(self._flat(row), readme,
+                          f"a sweep row has drifted: {self._flat(row)!r}")
+
+        codes = next((ln for ln in out.splitlines()
+                      if "refusal codes reached" in ln), None)
+        self.assertIsNotNone(codes)
+        self.assertIn(self._flat(codes), readme,
+                      f"refusal-code coverage has drifted: "
+                      f"{self._flat(codes)!r}")
 
 
 class TestQuickstartRuns(unittest.TestCase):
