@@ -407,6 +407,11 @@ footer{border-top:1px solid var(--line);padding:var(--s7) 0 var(--s10);
 
 <script>
 const rs  = p => "₹" + (p / 100).toFixed(2);
+// One code per refusal is the faithful record, and two fields can breach the
+// same constraint -- an amount and a merchant both mismatching one intent.
+// Repeating a code reads as a bug rather than as two findings, so every panel
+// renders codes through here. The remediations still list both.
+const codes = a => [...new Set(a || [])].join(", ");
 const pct = n => (n * 100).toFixed(n === 0 || n === 1 ? 0 : 1) + "%";
 const el = (t, c, x) => { const n = document.createElement(t);
   if (c) n.className = c; if (x !== undefined) n.textContent = x; return n; };
@@ -552,7 +557,7 @@ function delegation(d) {
     const row = el("div", "probe");
     row.appendChild(el("span", "amt", x.amount + " at " + x.merchant));
     row.appendChild(x.allowed ? pill("p-ok", "allowed")
-                              : pill("p-bad", x.codes.join(", ")));
+                              : pill("p-bad", codes(x.codes)));
     row.appendChild(el("span", "why", x.note));
     p.appendChild(row);
   });
@@ -590,7 +595,7 @@ function buyer(b) {
     row.appendChild(el("span", "v", s.amount + "p"));
     if (s.reasoning) row.appendChild(el("span", "say", "“" + s.reasoning + "”"));
     if ((s.codes || []).length)
-      row.appendChild(el("span", "fix", s.codes.join(", ")));
+      row.appendChild(el("span", "fix", codes(s.codes)));
     (s.remediations || []).forEach(r =>
       row.appendChild(el("span", "fix", "→ " + r)));
     tr.appendChild(row);
@@ -658,7 +663,7 @@ function chargeBtn(c, refused) {
   top.appendChild(el("span", "amt", rs(c.amount)));
   b.appendChild(top);
   const bits = [c.mandate_id, c.merchant];
-  bits.push(refused ? ((c.codes || []).join(", ") || c.refused_by)
+  bits.push(refused ? (codes(c.codes) || c.refused_by)
                     : (c.intent_id ? "intent " + c.intent_id
                                    : "no intent on record"));
   b.appendChild(el("span", "meta", bits.join("  ·  ")));
