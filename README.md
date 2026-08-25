@@ -1,5 +1,7 @@
 # as-presented
 
+[![tests](https://github.com/aarohim24/aspresented/actions/workflows/tests.yml/badge.svg)](https://github.com/aarohim24/aspresented/actions/workflows/tests.yml)
+
 > `"frequency": "as_presented"` — the one field in a UPI mandate that looks
 > like a rate limit and isn't. It means *charge whenever presented*.
 
